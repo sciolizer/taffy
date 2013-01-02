@@ -225,7 +225,7 @@ newClause
   :: clause
   -> S.Set (Var clause)
   -> IO Bool -- ^ collectable
-  -> Assign clause Bool -- ^ resolve; False indicates constraint is unsatisfiable. Checking for satisfiability is optional; the associated variables will be checked for emptiness. Returning False is just an opportunity to fail sooner.
+  -> Assign clause Bool -- ^ resolve: makes direct assignments if it can. Returns true iff the clause is still satisfiable
   -> New clause () -- ^ clause is necessary here so that resolve can be called.
 newClause c watched collectable resolve =
   tellClause (Clause c watched collectable resolve)
