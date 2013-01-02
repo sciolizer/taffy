@@ -5,7 +5,6 @@
 {-# LANGUAGE TupleSections #-}
 module Api (
   -- * Solving
-  Problem(..),
   solve,
 
   -- * Variables
@@ -38,10 +37,15 @@ import Control.Applicative
 import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
+import Control.Monad.RWS
+import Control.Monad.Trans
+import Control.Monad.Writer
+{-
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.RWS
 import Control.Monad.Trans.Writer
+-}
 import Data.Either
 import Data.Function
 import Data.IORef
@@ -52,21 +56,100 @@ import Data.Set (Set(..))
 import qualified Data.Set as S
 import Data.Unique
 
-data Problem clause = Problem {
-  collectable :: clause -> New Bool,
-  resolve :: clause -> clause -> New (),
-  revise :: clause -> Assign Bool {- false means clause has become unsatisfiable -}
+data Var c = Var {
+  varIdentity :: Unique,
+
+  -- ^ A partial set of clauses constraining this var. Clauses not in this set
+  -- but which constrain this var do not need to be revised when this var
+  -- is assigned.
+  -- For example, if the clause is a \/ b \/ c, then I should put the
+  -- clause in two of the vars, but I do not need to put it in the
+  -- third, since I can only make a deduction when there is one
+  -- remaining unassigned variable.
+  varClauses :: IORef (S.Set (Clause c)) }
+
+instance Eq (Var c) where (==) = (==) `on` varIdentity
+instance Ord (Var c) where compare = compare `on` varIdentity
+
+data AVar c a = AVar {
+  avarValues :: M.Map a (New c ()),
+  avarVar :: (Var c) }
+
+data IVar c a = IVar {
+  ivarAvar :: AVar c a,
+  ivarState :: IORef (IVarState c a) }
+
+data IVarState c a = IVarState {
+  -- ^ If empty, problem is in conflict.
+  -- If singleton, then a value has been chosen.
+  -- If more than one item, a choice has yet to be made.
+  _ivarCandidates :: (Set a),
+
+  -- ^ Everytime ivarCandidates is reduced to a singleton, that value is
+  -- added here. If it already exist in here, then the associated (New ())
+  -- in the AVar is not executed, since we know it has already been executed
+  -- once. If a clause using this ivar is garbage collected, then the
+  -- value is removed from here, so that future re-assignments will
+  -- re-instantiate the clause.
+  _ivarPreviousAssignments :: M.Map a (S.Set (Clause c)) }
+
+data UntypedIvar = UntypedIvar {
+  uivarIdentity :: Unique,
+  uivarCandidates :: IO Int,
+
+  -- ^ A sequence of calls to setIVar for each remaining candidate.
+  everyValue :: IO [Reversable ()] }
+
+instance Eq UntypedIvar where (==) = (==) `on` uivarIdentity
+instance Ord UntypedIvar where compare = compare `on` uivarIdentity
+
+data Clause c = Clause {
+  clauseClause :: c,
+  clauseVars :: S.Set (Var c),
+  clauseCollectable :: IO Bool,
+  clauseResolve :: Assign c Bool,
+  clauseWatched :: IORef (S.Set (Var c))
   }
 
-solve :: (Ord clause) => Problem clause -> Init a -> IO (Bool, a)
-solve p i = do
+clauseIdentity :: Clause c -> (c, S.Set (Var c))
+clauseIdentity c = (clauseClause c, clauseVars c)
+
+instance (Eq c) => Eq (Clause c) where (==) = (==) `on` clauseIdentity
+instance (Ord c) => Ord (Clause c) where compare = compare `on` clauseIdentity
+
+newtype New c a = New (WriterT [Either UntypedIvar (Clause c)] IO a)
+  deriving (Applicative, Functor, Monad, MonadIO)
+
+newtype Init c a = Init (WriterT [Var c] (New c) a)
+  deriving (Applicative, Functor, Monad, MonadIO)
+
+newtype Assign c a = Assign (WriterT [(UntypedIvar, Maybe (New c ()))] IO a)
+  deriving (Applicative, Functor, Monad, MonadIO)
+
+newtype Solve c a = Solve (RWST ([c] -> New c ()) () (SolveState c) IO a)
+  deriving (Applicative, Functor, Monad, MonadIO)
+
+data SolveState c = SolveState {
+  _unassignedVars :: S.Set UntypedIvar,
+  _unrevisedClauses :: S.Set (Clause c),
+  _learntClauses :: S.Set (Clause c) }
+
+data Reversable a = Reversable {
+  action :: IO a,
+  undo :: IO () }
+
+makeLenses ''IVarState
+makeLenses ''SolveState
+
+-- solve :: Init c a -> ([c] -> New ()) -> IO (Bool, a)
+solve p i = undefined {- do
   (ret, vars, clauses) <- runInit i
   completed <- runSolve backtrack vars (map snd clauses) p
   case completed of
     Nothing -> return (True, ret)
     Just () -> return (False, ret)
 
-backtrack :: Solve clause ()
+backtrack :: Solve c ()
 backtrack = do
   mbVar <- selectUnassignedVariable
   case mbVar of
@@ -81,7 +164,7 @@ backtrack = do
       -- todo: stick clause learning somewhere in here
       liftIO $ unset var
 
-selectUnassignedVariable :: Solve clause (Maybe UntypedIVar)
+selectUnassignedVariable :: Solve c (Maybe UntypedIvar)
 selectUnassignedVariable = do
   vs <- vars
   sizes <- mapM (\v -> (,v) <$> liftIO (numCandidates v)) . S.toList $ vs
@@ -89,7 +172,7 @@ selectUnassignedVariable = do
     [] -> return Nothing
     ((_,v):_) -> return (Just v)
 
-reviseAll :: Solve clause (Bool, Solve clause ())
+reviseAll :: Solve c (Bool, Solve c ())
 reviseAll = undefined {- do
   cs <- clauses
   consume (return ()) cs where
@@ -102,134 +185,126 @@ reviseAll = undefined {- do
         consume (undo >> undo') xs
       else return (False, undo)
       -}
+-}
 
-data Var = Var Meta
-  deriving (Eq, Ord)
+newVar = Var <$> newUnique <*> newIORef S.empty
 
-data Meta = Meta Unique
-  deriving (Eq, Ord)
+-- newAVar :: M.Map a (New ()) -> Init c (AVar c a)
+newAVar vs = do
+  ret <- AVar vs <$> newVar
+  tellVar ret
+  return ret
 
-data AVar a = AVar { newIVar :: New (IVar a), ameta :: Meta }
+avar :: AVar c a -> Var c
+avar = Var . avarVar
 
-newAVar :: (Ord a) => [(a, New ())] -> Init (AVar a)
-newAVar = undefined
+newIVar :: AVar c a -> New c (IVar c a)
+newIVar av = do
+  ret <- IVar av <$> newIORef (IVarState (M.keys (avarValues av)) M.empty)
+  tellUntypedIvar (untype ret)
+  return ret
 
-avar :: AVar a -> Var
-avar = Var . ameta
+ivar :: IVar c a -> Var c
+ivar = Var . avarVar . ivarAvar
 
-data IVar a = IVar {
-  ivalues :: IORef (Set a),
-  icandidates :: IORef (Set a),
-  ivalue :: IORef (Maybe a),
-  sideEffects :: forall clause. M.Map a (New ()),
-  imeta :: Meta }
+readIVar :: IVar c a -> IO (S.Set a)
+readIVar iv = _ivarCandidates <$> readIORef (ivarState iv)
 
-ivar :: IVar a -> Var
-ivar = undefined
+setIVar :: (Ord a) => IVar c a -> a -> Assign c ()
+setIVar iv v = do
+  liftIO $ do
+    let ref = ivarState iv
+    candidates <- ivarCandidates <$> readIORef (ivarState iv)
+    let newSet =
+          case M.lookup v candidates of
+            Nothing -> S.empty
+            Just _ -> S.singleton v
+    modifyIORef ref (set ivarCandidates newSet)
+  liftIO $ modifyIORef (ivarState iv) (set ivarCandidates (S.singleton v))
+  dirtyVar iv
 
-readIVar :: IVar a -> IO [a]
-readIVar = undefined
+shrinkIVar :: (Ord a) => IVar c a -> a -> Assign c ()
+shrinkIVar iv v = do
+  liftIO $ modifyIORef (ivarState iv) (over ivarCandidates (S.delete v))
+  dirtyVar iv 
 
-setIVar :: (Ord a) => IVar a -> a -> Assign ()
-setIVar = undefined
+-- untype :: (Ord a) => IVar c a -> UntypedIvar
+untype iv = UntypedIvar identity count setters where
+  identity = varIdentity . avarVar . ivarAvar $ iv
+  candidates = _ivarCandidates <$> readIORef (ivarState iv)
+  count = S.size <$> candidates
+  setters = do
+    cs <- S.toList <$> candidates
+    return (map (setIVar iv) cs)
 
-shrinkIVar :: (Ord a) => IVar a -> a -> Assign ()
-shrinkIVar = undefined
+-- ^ Revise might not fire on this clause if only one of the vars in the
+-- second set is assigned. When in doubt, put all of your vars in the
+-- first set.
+newClause
+  :: clause
+  -> S.Set (Var clause) -- ^ watched vars
+  -> S.Set (Var clause) -- ^ not-necessarily watched vars
+  -> IO Bool -- ^ collectable
+  -> Assign clause Bool -- ^ resolve; False indicates constraint is unsatisfiable. Checking for satisfiability is optional; the associated variables will be checked for emptiness. Returning False is just an opportunity to fail sooner.
+  -> New clause () -- ^ clause is necessary here so that resolve can be called.
+newClause c watched unwatched collectable resolve = do
+  wr <- newIORef watched
+  tellClause (Clause c (S.union watched unwatched) collectable resolve wr)
 
-data UntypedIVar = UntypedIVar {
-  identity :: Unique,
-  numCandidates :: IO Int,
-  unset :: IO (),
-  everyValue :: forall m a. (MonadIO m) => ([UntypedIVar] -> [Clause] -> m a) -> m () }
-
-instance Eq UntypedIVar where (==) = (==) `on` identity
-instance Ord UntypedIVar where compare = compare `on` identity
-
-untype :: (Ord a) => IVar a -> UntypedIVar
-untype iv = UntypedIVar i nv us ev where
-  (Meta i) = imeta iv
-  nv = S.size <$> readIORef csRef
-  us = writeIORef (ivalue iv) Nothing
-  ev m = do
-    orig <- liftIO $ readIORef vRef
-    list <- liftIO $ readIORef csRef
-    mapM_ (switchTo m) . S.toList $ list
-    liftIO $ writeIORef csRef list
-    liftIO $ writeIORef vRef orig
-  switchTo m v = do
-    liftIO $ writeIORef vRef (Just v)
-    liftIO $ writeIORef csRef (S.singleton v)
-    (ivs, cls) <- case M.lookup v (sideEffects iv) of
-      Nothing -> internalBug "malconstructed ivar"
-      Just effect -> liftIO $ do
-        ((), ivms, cms) <- runNew effect
-        ivs <- sequence ivms
-        cls <- map snd <$> sequence cms
-        return (ivs, cls)
-    m ivs cls
-  csRef = icandidates iv
-  vRef = ivalue iv
-
-internalBug = error
-
-newClause :: clause -> [Var] -> New ()
-newClause = undefined
-
-data Clause = Clause [Var]
-  deriving (Eq, Ord)
-
-newtype New a = New (WriterT [Either UntypedIVar Clause] IO a)
-  deriving (Monad, MonadIO)
-
-runNew :: New a -> IO (a, [IVarMaker], [Clause])
+-- runNew :: New a -> IO (a, [UntypedIvar], [Clause])
 runNew (New m) = do
   (ret, mix) <- runWriterT m
   let (ims, cs) = partitionEithers mix
   return (ret, ims, cs)
 
-newtype Init a = Init (WriterT [AVarMaker] New a)
-  deriving (Monad, MonadIO)
+tellClause :: Clause c -> New c ()
+tellClause = New . tell . (:[]) . Right
 
-runInit :: Init a -> IO (a, [UntypedIVar], [Clause])
+tellUntypedIvar :: UntypedIvar -> New c ()
+tellUntypedIvar = New . tell . (:[]) . Left
+
+runInit :: Init c a -> IO (a, [Var c], [UntypedIvar], [Clause c])
 runInit (Init m) = do
-  ((ret, avars), ivars, cms) <- runNew (runWriterT m)
-  sequence_ avars
-  ivars' <- sequence ivars
-  cms' <- sequence cms
-  return (ret, ivars', cms')
+  ((ret, avars), ivars, cs) <- runNew (runWriterT m)
+  return (ret, avars, ivars, cs)
 
-liftNew :: New a -> Init a
-liftNew = undefined
+liftNew :: New c a -> Init c a
+liftNew = Init . lift
 
-data Assign a
-instance Monad Assign
-instance MonadIO Assign
+tellVar :: Var c {- assumed AVar -} -> Init c ()
+tellVar = Init . tell . (:[])
 
--- should run side effects
-runAssign = undefined -- :: Assign a -> 
+runAssign :: Assign c a -> IO (a, [(UntypedIvar, Maybe (New c ()))])
+runAssign (Assign m) = runWriterT m
 
-newtype Solve clause a = Solve (MaybeT (RWST (Problem clause) () SolveState IO) a)
-  deriving (Applicative, Functor, Monad, MonadIO)
+-- dirtyVar :: IVar c a -> Assign c ()
+dirtyVar iv = Assign $ do
+  candidates <- liftIO $ _ivarCandidates <$> readIORef (ivarState iv)
+  let internalBug = error
+  let effect =
+        case S.toList candidates of
+          [v] ->
+            case M.lookup v (avarValues . ivarAvar $ iv) of
+              Nothing -> internalBug "one of candidates is invalid"
+              Just x -> Just x
+          _ -> Nothing
+  tell [(untype iv, effect)]
 
-data SolveState = SolveState {
-  _vars :: Set UntypedIVar,
-  _clauses :: Set Clause }
+evalSolve :: Solve c a -> ([c] -> New c ()) -> SolveState c -> IO a
+evalSolve (Solve m) resolve solveState = do
+  (ret, ()) <- evalRWST m resolve solveState
+  return ret
 
-runSolve :: (Ord clause) => Solve clause a -> [UntypedIVar] -> [Clause] -> Problem clause -> IO (Maybe a)
-runSolve (Solve m) vs cs p = do
-  (e, _, _) <- runRWST (runMaybeT m) p (SolveState (S.fromList vs) (S.fromList cs))
-  return e
+resolve :: [c] -> Solve c (New c ())
+resolve xs = Solve $ do
+  resolver <- ask
+  return (resolver xs)
 
-escape :: Solve clause a
-escape = Solve (fail "escape")
+runReversable :: Reversable a -> IO (a, IO ())
+runReversable (Reversable a u) = do
+  ret <- a
+  return (ret, u)
 
--- todo: get rid of these functions
-vars = Solve (lift $ gets _vars)
-clauses = Solve (lift $ gets _clauses)
-
--- todo: get rid of these functions; use lens, and inline
-appendVars vs = Solve (lift $ modify (\(SolveState v x) -> SolveState (S.union (S.fromList vs) v) x))
-appendClauses cs = Solve (lift $ modify (\(SolveState v x) -> SolveState v (S.union (S.fromList cs) x)))
 ----
 
 {-
@@ -265,5 +340,3 @@ assign (Left (set, unset) : vs) p = do -- deterministic assignment
   unset
   return False
   -}
-
--- makeLenses ''SolveState
