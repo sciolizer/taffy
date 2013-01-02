@@ -42,7 +42,7 @@ import Data.Set (Set(..))
 import qualified Data.Set as S
 import Data.Unique
 
-type ClauseMaker clause = IO clause
+type ClauseMaker clause = IO (clause, Clause)
 type IVarMaker = IO UntypedIVar
 newtype S clause a = S (WriterT [Either IVarMaker (ClauseMaker clause)] IO a)
   deriving (Monad, MonadIO)
@@ -62,6 +62,8 @@ data Problem clause = Problem {
   }
 
 data Var = Var Meta
+  deriving (Eq, Ord)
+
 data IVar a = IVar {
   ivalues :: IORef (Set a),
   icandidates :: IORef (Set a),
@@ -70,6 +72,10 @@ data IVar a = IVar {
   imeta :: Meta }
 data AVar a = AVar { newIVar :: forall clause. S clause (IVar a), ameta :: Meta }
 data Meta = Meta Unique
+  deriving (Eq, Ord)
+
+data Clause = Clause [Var]
+  deriving (Eq, Ord)
 
 newClause :: clause -> [Var] -> S clause ()
 newClause = undefined
@@ -98,30 +104,30 @@ shrinkIVar = undefined
 solve :: (Ord clause) => Problem clause -> Init clause a -> IO (Bool, a)
 solve p i = do
   (ret, vars, clauses) <- runInit i
-  completed <- runSolve backtrack vars clauses p
+  completed <- runSolve backtrack vars (map snd clauses) p
   case completed of
     Nothing -> return (True, ret)
     Just () -> return (False, ret)
 
 -- end public, begin private
 
-runSolve :: (Ord clause) => Solve clause a -> [UntypedIVar] -> [clause] -> Problem clause -> IO (Maybe a)
+runSolve :: (Ord clause) => Solve clause a -> [UntypedIVar] -> [Clause] -> Problem clause -> IO (Maybe a)
 runSolve (Solve m) vs cs p = do
   (e, _, _) <- runRWST (runMaybeT m) p (SolveState (S.fromList vs) (S.fromList cs))
   return e
 
-data SolveState clause = SolveState {
+data SolveState = SolveState {
   _vars :: Set UntypedIVar,
-  _clauses :: Set clause }
+  _clauses :: Set Clause }
 
-newtype Solve clause a = Solve (MaybeT (RWST (Problem clause) () (SolveState clause) IO) a)
+newtype Solve clause a = Solve (MaybeT (RWST (Problem clause) () SolveState IO) a)
   deriving (Applicative, Functor, Monad, MonadIO)
 
 data UntypedIVar = UntypedIVar {
   identity :: Unique,
   numCandidates :: IO Int,
   unset :: IO (),
-  everyValue :: forall m a. (MonadIO m) => m a -> m () }
+  everyValue :: forall m a. (MonadIO m) => ([UntypedIVar] -> [Clause] -> m a) -> m () }
 
 instance Eq UntypedIVar where (==) = (==) `on` identity
 instance Ord UntypedIVar where compare = compare `on` identity
@@ -140,13 +146,14 @@ untype iv = UntypedIVar i nv us ev where
   switchTo m v = do
     liftIO $ writeIORef vRef (Just v)
     liftIO $ writeIORef csRef (S.singleton v)
-    case M.lookup v (sideEffects iv) of
+    (ivs, cls) <- case M.lookup v (sideEffects iv) of
       Nothing -> internalBug "malconstructed ivar"
       Just effect -> liftIO $ do
         ((), ivms, cms) <- runS effect
-        sequence_ ivms
-        sequence_ cms
-    m
+        ivs <- sequence ivms
+        cls <- map snd <$> sequence cms
+        return (ivs, cls)
+    m ivs cls
   csRef = icandidates iv
   vRef = ivalue iv
 
@@ -158,7 +165,9 @@ backtrack = do
   case mbVar of
     Nothing -> escape
     Just var -> do
-      everyValue var $ do
+      everyValue var $ \newvars newclauses -> do
+        appendVars newvars
+        appendClauses newclauses
         (continue, undo) <- reviseAll 
         when continue backtrack
         undo
@@ -169,7 +178,9 @@ escape :: Solve clause a
 escape = Solve (fail "escape")
 
 vars = Solve (lift $ gets _vars)
+appendVars vs = Solve (lift $ modify (\(SolveState v x) -> SolveState (S.union (S.fromList vs) v) x))
 clauses = Solve (lift $ gets _clauses)
+appendClauses cs = Solve (lift $ modify (\(SolveState v x) -> SolveState v (S.union (S.fromList cs) x)))
 
 selectUnassignedVariable :: Solve clause (Maybe UntypedIVar)
 selectUnassignedVariable = do
@@ -182,7 +193,7 @@ selectUnassignedVariable = do
 reviseAll :: Solve clause (Bool, Solve clause ())
 reviseAll = undefined
 
-runInit :: Init clause a -> IO (a, [UntypedIVar], [clause])
+runInit :: Init clause a -> IO (a, [UntypedIVar], [(clause,Clause)])
 runInit (Init m) = do
   ((ret, avars), ivars, cms) <- runS (runWriterT m)
   sequence_ avars
@@ -195,8 +206,6 @@ runS (S m) = do
   (ret, mix) <- runWriterT m
   let (ims, cs) = partitionEithers mix
   return (ret, ims, cs)
-
-data Clause
 
 {-
 unassign :: Var -> IO ()
