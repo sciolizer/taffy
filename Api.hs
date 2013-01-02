@@ -4,24 +4,34 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 module Api (
-  S(),
-  Init(),
-  Assign(),
+  -- * Solving
+  Problem(..),
+  solve,
 
+  -- * Variables
   Var(),
-  IVar(),
-  AVar(),
 
-  newClause,
+  -- ** Abstract variables
+  AVar(),
   newAVar,
   avar,
-  liftS,
+  
+  -- ** Instance variables
+  IVar(),
   newIVar,
   ivar,
   readIVar,
   setIVar,
   shrinkIVar,
-  solve
+
+  -- * Clauses
+  newClause,
+
+  -- * Monads
+  New(),
+  Init(),
+  liftNew,
+  Assign(),
 ) where
 
 import Control.Applicative
@@ -42,52 +52,77 @@ import Data.Set (Set(..))
 import qualified Data.Set as S
 import Data.Unique
 
-type ClauseMaker clause = IO (clause, Clause)
-type IVarMaker = IO UntypedIVar
-newtype S clause a = S (WriterT [Either IVarMaker (ClauseMaker clause)] IO a)
-  deriving (Monad, MonadIO)
-
-type AVarMaker = IO () -- todo: is this actually necessary?
-newtype Init clause a = Init (WriterT [AVarMaker] (S clause) a)
-  deriving (Monad, MonadIO)
-
-data Assign a
-instance Monad Assign
-instance MonadIO Assign
-
 data Problem clause = Problem {
-  collectable :: clause -> S clause Bool,
-  resolve :: clause -> clause -> S clause (),
+  collectable :: clause -> New Bool,
+  resolve :: clause -> clause -> New (),
   revise :: clause -> Assign Bool {- false means clause has become unsatisfiable -}
   }
 
+solve :: (Ord clause) => Problem clause -> Init a -> IO (Bool, a)
+solve p i = do
+  (ret, vars, clauses) <- runInit i
+  completed <- runSolve backtrack vars (map snd clauses) p
+  case completed of
+    Nothing -> return (True, ret)
+    Just () -> return (False, ret)
+
+backtrack :: Solve clause ()
+backtrack = do
+  mbVar <- selectUnassignedVariable
+  case mbVar of
+    Nothing -> escape
+    Just var -> do
+      everyValue var $ \newvars newclauses -> do
+        appendVars newvars
+        appendClauses newclauses
+        (continue, undo) <- reviseAll 
+        when continue backtrack
+        undo
+      -- todo: stick clause learning somewhere in here
+      liftIO $ unset var
+
+selectUnassignedVariable :: Solve clause (Maybe UntypedIVar)
+selectUnassignedVariable = do
+  vs <- vars
+  sizes <- mapM (\v -> (,v) <$> liftIO (numCandidates v)) . S.toList $ vs
+  case sort . filter (\(x,_) -> x > 1) $ sizes of
+    [] -> return Nothing
+    ((_,v):_) -> return (Just v)
+
+reviseAll :: Solve clause (Bool, Solve clause ())
+reviseAll = undefined {- do
+  cs <- clauses
+  consume (return ()) cs where
+    consume undo [] = return (True, undo)
+    consume undo (x:xs) = do
+      (continue, affectedVars, undo') <- runAssign $ revise x -- should run side effects
+      -- todo: need to add clauses associated with affectedVars back into queue
+      if continue then do
+        sideEffects
+        consume (undo >> undo') xs
+      else return (False, undo)
+      -}
+
 data Var = Var Meta
   deriving (Eq, Ord)
+
+data Meta = Meta Unique
+  deriving (Eq, Ord)
+
+data AVar a = AVar { newIVar :: New (IVar a), ameta :: Meta }
+
+newAVar :: (Ord a) => [(a, New ())] -> Init (AVar a)
+newAVar = undefined
+
+avar :: AVar a -> Var
+avar = Var . ameta
 
 data IVar a = IVar {
   ivalues :: IORef (Set a),
   icandidates :: IORef (Set a),
   ivalue :: IORef (Maybe a),
-  sideEffects :: forall clause. M.Map a (S clause ()),
+  sideEffects :: forall clause. M.Map a (New ()),
   imeta :: Meta }
-data AVar a = AVar { newIVar :: forall clause. S clause (IVar a), ameta :: Meta }
-data Meta = Meta Unique
-  deriving (Eq, Ord)
-
-data Clause = Clause [Var]
-  deriving (Eq, Ord)
-
-newClause :: clause -> [Var] -> S clause ()
-newClause = undefined
-
-newAVar :: (Ord a) => [(a, S clause ())] -> Init clause (AVar a)
-newAVar = undefined
-
-avar :: AVar a -> Var
-avar = undefined
-
-liftS :: S clause a -> Init clause a
-liftS = undefined
 
 ivar :: IVar a -> Var
 ivar = undefined
@@ -100,28 +135,6 @@ setIVar = undefined
 
 shrinkIVar :: (Ord a) => IVar a -> a -> Assign ()
 shrinkIVar = undefined
-
-solve :: (Ord clause) => Problem clause -> Init clause a -> IO (Bool, a)
-solve p i = do
-  (ret, vars, clauses) <- runInit i
-  completed <- runSolve backtrack vars (map snd clauses) p
-  case completed of
-    Nothing -> return (True, ret)
-    Just () -> return (False, ret)
-
--- end public, begin private
-
-runSolve :: (Ord clause) => Solve clause a -> [UntypedIVar] -> [Clause] -> Problem clause -> IO (Maybe a)
-runSolve (Solve m) vs cs p = do
-  (e, _, _) <- runRWST (runMaybeT m) p (SolveState (S.fromList vs) (S.fromList cs))
-  return e
-
-data SolveState = SolveState {
-  _vars :: Set UntypedIVar,
-  _clauses :: Set Clause }
-
-newtype Solve clause a = Solve (MaybeT (RWST (Problem clause) () SolveState IO) a)
-  deriving (Applicative, Functor, Monad, MonadIO)
 
 data UntypedIVar = UntypedIVar {
   identity :: Unique,
@@ -149,7 +162,7 @@ untype iv = UntypedIVar i nv us ev where
     (ivs, cls) <- case M.lookup v (sideEffects iv) of
       Nothing -> internalBug "malconstructed ivar"
       Just effect -> liftIO $ do
-        ((), ivms, cms) <- runS effect
+        ((), ivms, cms) <- runNew effect
         ivs <- sequence ivms
         cls <- map snd <$> sequence cms
         return (ivs, cls)
@@ -159,71 +172,65 @@ untype iv = UntypedIVar i nv us ev where
 
 internalBug = error
 
-backtrack :: Solve clause ()
-backtrack = do
-  mbVar <- selectUnassignedVariable
-  case mbVar of
-    Nothing -> escape
-    Just var -> do
-      everyValue var $ \newvars newclauses -> do
-        appendVars newvars
-        appendClauses newclauses
-        (continue, undo) <- reviseAll 
-        when continue backtrack
-        undo
-      -- todo: stick clause learning somewhere in here
-      liftIO $ unset var
+newClause :: clause -> [Var] -> New ()
+newClause = undefined
 
-escape :: Solve clause a
-escape = Solve (fail "escape")
+data Clause = Clause [Var]
+  deriving (Eq, Ord)
 
-vars = Solve (lift $ gets _vars)
-appendVars vs = Solve (lift $ modify (\(SolveState v x) -> SolveState (S.union (S.fromList vs) v) x))
-clauses = Solve (lift $ gets _clauses)
-appendClauses cs = Solve (lift $ modify (\(SolveState v x) -> SolveState v (S.union (S.fromList cs) x)))
+newtype New a = New (WriterT [Either UntypedIVar Clause] IO a)
+  deriving (Monad, MonadIO)
 
-selectUnassignedVariable :: Solve clause (Maybe UntypedIVar)
-selectUnassignedVariable = do
-  vs <- vars
-  sizes <- mapM (\v -> (,v) <$> liftIO (numCandidates v)) . S.toList $ vs
-  case sort . filter (\(x,_) -> x > 1) $ sizes of
-    [] -> return Nothing
-    ((_,v):_) -> return (Just v)
+runNew :: New a -> IO (a, [IVarMaker], [Clause])
+runNew (New m) = do
+  (ret, mix) <- runWriterT m
+  let (ims, cs) = partitionEithers mix
+  return (ret, ims, cs)
 
-reviseAll :: Solve clause (Bool, Solve clause ())
-reviseAll = undefined
+newtype Init a = Init (WriterT [AVarMaker] New a)
+  deriving (Monad, MonadIO)
 
-runInit :: Init clause a -> IO (a, [UntypedIVar], [(clause,Clause)])
+runInit :: Init a -> IO (a, [UntypedIVar], [Clause])
 runInit (Init m) = do
-  ((ret, avars), ivars, cms) <- runS (runWriterT m)
+  ((ret, avars), ivars, cms) <- runNew (runWriterT m)
   sequence_ avars
   ivars' <- sequence ivars
   cms' <- sequence cms
   return (ret, ivars', cms')
 
-runS :: S clause a -> IO (a, [IVarMaker], [ClauseMaker clause])
-runS (S m) = do
-  (ret, mix) <- runWriterT m
-  let (ims, cs) = partitionEithers mix
-  return (ret, ims, cs)
+liftNew :: New a -> Init a
+liftNew = undefined
 
-{-
-unassign :: Var -> IO ()
-unassign = undefined
--}
+data Assign a
+instance Monad Assign
+instance MonadIO Assign
 
-{-
-constraining :: Var -> IO [Clause]
-constraining = undefined
+-- should run side effects
+runAssign = undefined -- :: Assign a -> 
 
-genImplications :: Clause -> IO (Maybe [(IO (), IO ())])
-genImplications = undefined
+newtype Solve clause a = Solve (MaybeT (RWST (Problem clause) () SolveState IO) a)
+  deriving (Applicative, Functor, Monad, MonadIO)
 
-foldThing :: (a -> IO (Maybe [b])) -> [a] -> IO (Maybe [b])
-foldThing = undefined
--}
+data SolveState = SolveState {
+  _vars :: Set UntypedIVar,
+  _clauses :: Set Clause }
 
--- runS :: S clause a -> IO ([Clause], a)
+runSolve :: (Ord clause) => Solve clause a -> [UntypedIVar] -> [Clause] -> Problem clause -> IO (Maybe a)
+runSolve (Solve m) vs cs p = do
+  (e, _, _) <- runRWST (runMaybeT m) p (SolveState (S.fromList vs) (S.fromList cs))
+  return e
+
+escape :: Solve clause a
+escape = Solve (fail "escape")
+
+-- todo: get rid of these functions
+vars = Solve (lift $ gets _vars)
+clauses = Solve (lift $ gets _clauses)
+
+-- todo: get rid of these functions; use lens, and inline
+appendVars vs = Solve (lift $ modify (\(SolveState v x) -> SolveState (S.union (S.fromList vs) v) x))
+appendClauses cs = Solve (lift $ modify (\(SolveState v x) -> SolveState v (S.union (S.fromList cs) x)))
+----
 
 {-
 propagate vs p clauses = do
