@@ -1,4 +1,4 @@
-module Sat where
+module Main where
 
 import Control.Monad.Trans
 import Data.Function
