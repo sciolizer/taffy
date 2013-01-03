@@ -55,6 +55,7 @@ module Solver (
 ) where
 
 import Control.Applicative
+import Control.Exception
 import Control.Lens
 import Control.Monad.IO.Class
 import Control.Monad.RWS
@@ -89,8 +90,13 @@ instance Show (Var constraint) where show = varName
 -- | A family of instance variables.
 data Avar constraint a = Avar {
   avarValues :: M.Map a (Ivar constraint a -> New constraint ()),
-  avar :: Var constraint -- ^ Wraps an abstract variable for use as a constraint dependency.
-  }
+
+  -- | Used by safetyCheck.
+  inNewOrInitMonad :: IO Bool,
+
+  -- | Wraps an abstract variable for use as a constraint dependency.
+  avar :: Var constraint }
+
 
 -- | An instance variable, belonging to one abstract variable. It can
 -- be constrained indirectly (through its parent 'Avar') or directly.
@@ -156,7 +162,7 @@ data NewState = NewState {
   _nextConstraintId :: Int }
 
 -- | A special case of the 'New' monad which also allows creating 'Avar's.
-newtype Init constraint a = Init (WriterT [Var constraint] (New constraint) a)
+newtype Init constraint a = Init (RWST (IORef Bool) [Var constraint] () (New constraint) a)
   deriving (Applicative, Functor, Monad, MonadIO)
 
 -- | A monad for making assignments to 'Ivar's, which a constraint will
@@ -180,7 +186,8 @@ data SolveState c = SolveState {
 
 data SolveContext c = SolveContext {
   _solveNewState :: IORef NewState,
-  _learner :: [c] -> New c () }
+  _learner :: [c] -> New c (),
+  _monadCheckRef :: IORef Bool }
 
 instance MonadReader (SolveContext c) (Solve c) where
   -- ask :: Solve c (SolveContext c)
@@ -209,10 +216,10 @@ solve
   -> Init constraint a -- ^ Problem definition. You should return the 'Ivar's that you plan on reading from (using 'readIvar') when a solution is found.
   -> IO (Bool, a) -- ^ 'False' iff no solution exists. Values returned from 'readIvar' after solve completes are 'undefined' if 'False' is returned; otherwise they will be singleton sets containing the satisfying assignment.
 solve learner definition = do
-  (ret, newstate, _avars, ivars, clauses) <- runInit definition
+  (ret, check, newstate, _avars, ivars, clauses) <- runInit definition
   mapM_ attach clauses
   let ss = SolveState [] (S.fromList ivars) (S.fromList clauses) S.empty
-  completed <- evalSolve loop newstate learner ss
+  completed <- evalSolve loop (SolveContext newstate learner check) ss
   return (completed, ret)
 
 attach :: (Ord c) => Clause c -> IO ()
@@ -289,10 +296,11 @@ propagateEffects as = do
 runEffects :: [Assignment c] -> Solve c ([UntypedIvar c], [Clause c])
 runEffects as = do
   ns <- view solveNewState
+  making <- view monadCheckRef
   liftIO $ do
     -- todo: change collectable to be dependent on whether
     -- the instigating variable has multiple candidate values.
-    out <- mapM ((\x -> runNew x ns (return False)) . assignmentEffect) as
+    out <- mapM ((\x -> runNew x making ns (return False)) . assignmentEffect) as
     return . (\(vss,css) -> (concat vss, concat css)) . unzip . map (\((),v,c) -> (v,c)) $ out
 
 -- For some reason ghc can't infer this type.
@@ -336,7 +344,8 @@ newAvar vs = do
 -- | Like 'newAvar', but allows you to attach a custom name to the variable
 -- for debugging purposes.
 newNamedAvar name vs = do
-  ret <- liftIO $ Avar vs <$> newVar name
+  making <- Init ask
+  ret <- liftIO $ Avar vs (readIORef making) <$> newVar name
   tellAvar ret
   return ret
 
@@ -363,10 +372,14 @@ ivarName = varName . ivar
 --
 -- This function can be called after the 'solve' function
 -- has returned 'True', or inside the 'Assign' monad given to 'newConstraint'.
--- Its behavior is undefined when called from inside the 'New' monad or
--- the 'Init' monad.
+-- It raises an error when called from inside the New (or Init) monad, to
+-- prevent misleading results. New monads are sometimes executed as dry
+-- runs (undone immediately after executing), and are not a safe
+-- place to infer the problem state.
 readIvar :: Ivar constraint a -> IO (S.Set a)
-readIvar iv = _ivarCandidates <$> readIORef (ivarState iv)
+readIvar iv = do
+  safetyCheck iv
+  _ivarCandidates <$> readIORef (ivarState iv)
 
 -- | Removes all but the given value from the variable's set of
 -- candidate values. If the given value is already in violation of
@@ -413,11 +426,22 @@ newConstraint c watched resolve = do
 newNamedConstraint name c watched resolve =
   tellClause (Clause name c watched resolve)
 
-runNew :: New c a -> IORef NewState -> IO Bool -> IO (a, [(UntypedIvar c)], [Clause c])
-runNew (New m) newstate collectable = do
-  (ret, mix) <- evalRWST m (NewContext newstate) ()
-  let (ims, cs) = partitionEithers mix
-  return (ret, ims, map ($ collectable) cs)
+runNew
+  :: New c a
+  -> IORef Bool
+  -> IORef NewState
+  -> IO Bool
+  -> IO (a, [(UntypedIvar c)], [Clause c])
+runNew (New m) flag newstate collectable = bracket turnOn turnOff (const z) where
+  z = do
+    (ret, mix) <- evalRWST m (NewContext newstate) ()
+    let (ims, cs) = partitionEithers mix
+    return (ret, ims, map ($ collectable) cs)
+  turnOn = do
+    orig <- readIORef flag
+    writeIORef flag False
+    return orig
+  turnOff = writeIORef flag
 
 -- tellClause :: (IO Bool -> Clause c) -> New c ()
 tellClause = New . tell . (:[]) . Right
@@ -433,11 +457,17 @@ query lens = do
     modifyIORef ref (over lens (+1))
     return ret
 
+safetyCheck :: Ivar c a -> IO ()
+safetyCheck iv = do
+  making <- inNewOrInitMonad . ivarAvar $ iv
+  when making $ throwIO (userError "cannot read from ivar while in the new or init monad")
+
 -- runInit :: Init c a -> IO (a, [Var c], [(UntypedIvar c)], [Clause c])
 runInit (Init m) = do
   newstate <- newIORef (NewState 0 0 0)
-  ((ret, avars), ivars, cs) <- runNew (runWriterT m) newstate (return False)
-  return (ret, newstate, avars, ivars, cs)
+  making <- newIORef False
+  ((ret, avars), ivars, cs) <- runNew (evalRWST m making ()) making newstate (return False)
+  return (ret, making, newstate, avars, ivars, cs)
 
 -- | Lift 'Ivar' and constraint creation into the 'Init' monad.
 liftNew :: New constraint a -> Init constraint a
@@ -463,9 +493,9 @@ dirtyVar iv orig = Assign $ do
           _ -> const nop
   tell [Assignment (untype iv) (effect iv) (modifyIORef ref (set ivarCandidates orig))]
 
-evalSolve :: Solve c a -> IORef NewState -> ([c] -> New c ()) -> SolveState c -> IO a
-evalSolve (Solve m) newstate learner solveState = do
-  (ret, ()) <- evalRWST m (SolveContext newstate learner) solveState
+evalSolve :: Solve c a -> SolveContext c -> SolveState c -> IO a
+evalSolve (Solve m) context solveState = do
+  (ret, ()) <- evalRWST m context solveState
   return ret
 
 {-
