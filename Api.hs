@@ -82,7 +82,7 @@ data IVarState c a = IVarState {
   -- once. If a clause using this ivar is garbage collected, then the
   -- value is removed from here, so that future re-assignments will
   -- re-instantiate the clause.
-  _ivarPreviousAssignments :: M.Map a (S.Set (Clause c)) }
+  _ivarPreviousAssignments :: M.Map a (S.Set (Clause c)) } -- todo: this value is still not being checked
 
 data UntypedIvar c = UntypedIvar {
   uivarVar :: Var c,
@@ -147,8 +147,9 @@ solve resolver definition = do
   completed <- evalSolve loop resolver ss
   return (completed, ret)
 
-attach :: Clause c -> IO ()
-attach = undefined
+attach :: (Ord c) => Clause c -> IO ()
+attach c = mapM_ insert . S.toList . clauseVars $ c where
+  insert v = modifyIORef (varClauses v) (S.insert c)
 
 -- loop :: Solve c Bool
 loop = do
@@ -167,11 +168,7 @@ loop = do
             [_] -> do
               assignedVars %= (AssignmentFrame nop [] False :)
               loop
-            (x:xs) -> do
-              ((), [a]) <- liftIO $ runAssign x
-              assignedVars %= (AssignmentFrame (assignmentUndo a) xs True :)
-              propagateEffects [a]
-              loop
+            (x:xs) -> choose x xs
     Just c -> do
       (satisfiable, as) <- liftIO $ runAssign (clauseResolve c)
       if not satisfiable then jumpback else do
@@ -181,8 +178,27 @@ loop = do
 
 nop = return ()
 
-jumpback :: Solve c Bool
-jumpback = undefined
+jumpback :: (Ord c) => Solve c Bool
+jumpback = do
+  vs <- use assignedVars
+  let (pop,keep) = span (not . _frameDecisionLevel) vs
+  -- todo: put clause learning in here
+  liftIO $ mapM_ _frameUndo pop
+  stepback keep
+
+stepback [] = return False
+stepback (x:xs) = do
+  liftIO $ _frameUndo x
+  case _frameUntriedValues x of
+    [] -> stepback xs
+    (y:ys) -> choose y ys
+
+choose x xs = do
+  ((), [a]) <- liftIO $ runAssign x
+  assignedVars %= (AssignmentFrame (assignmentUndo a) xs True :)
+  propagateEffects [a]
+  loop
+      
 
 -- propagateEffects :: [Assignment c] -> Solve c ()
 propagateEffects as = do
