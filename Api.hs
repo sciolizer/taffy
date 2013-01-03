@@ -153,17 +153,17 @@ attach c = mapM_ insert . S.toList . clauseVars $ c where
 
 -- loop :: Solve c Bool
 loop = do
-  mbc <- popClause
+  mbc <- pop unrevisedClauses
   case mbc of
     Nothing -> do
-      mbv <- popVar
+      mbv <- pop unassignedVars
       case mbv of
         Nothing -> return True
         Just v -> do
           vals <- liftIO $ uivarValues v
           case vals of
             [] -> do
-              pushVar v
+              unassignedVars %= S.insert v
               jumpback
             [_] -> do
               assignedVars %= (AssignmentFrame nop [] False :)
@@ -215,14 +215,14 @@ runEffects as = do
   out <- mapM runNew es
   return . (\(vss,css) -> (concat vss, concat css)) . unzip . map (\((),v,c) -> (v,c)) $ out
 
-popVar :: Solve c (Maybe (UntypedIvar c))
-popVar = undefined
-
-pushVar :: UntypedIvar c -> Solve c ()
-pushVar = undefined
-
-popClause :: Solve c (Maybe (Clause c))
-popClause = undefined
+-- For some reason ghc can't infer this type.
+pop :: MonadState s m => Simple Lens s (S.Set a) -> m (Maybe a)
+pop set  = do
+  s <- use set
+  if S.null s then return Nothing else do
+  let (v, s') = S.deleteFindMin s -- todo: better variable ordering
+  set .= s'
+  return (Just v)
 
 {-
 backtrack :: Solve c ()
