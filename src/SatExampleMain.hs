@@ -1,4 +1,4 @@
-module SatExampleMain where
+module Main where
 
 import qualified SatExample as SE
 

@@ -71,12 +71,12 @@ data IVar c a = IVar {
   ivarState :: IORef (IVarState c a) }
 
 data IVarState c a = IVarState {
-  -- ^ If empty, problem is in conflict.
+  -- | If empty, problem is in conflict.
   -- If singleton, then a value has been chosen.
   -- If more than one item, a choice has yet to be made.
   _ivarCandidates :: (S.Set a),
 
-  -- ^ Everytime ivarCandidates is reduced to a singleton, that value is
+  -- | Everytime ivarCandidates is reduced to a singleton, that value is
   -- added here. If it already exist in here, then the associated (New ())
   -- in the AVar is not executed, since we know it has already been executed
   -- once. If a clause using this ivar is garbage collected, then the

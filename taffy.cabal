@@ -4,7 +4,7 @@ synopsis:            Dynamic constraint solver
 description:         General purpose constraint solver. Based off the chaff algorithm, but with three important differences: fully parameterized constraint type (not limited to boolean disjunctions), symmetric learning, and support for creation of new variables and clauses during the search.
 homepage:            https://github.com/sciolizer/taffy
 license:             MIT
-license-file:        LICENSE
+-- license-file:        LICENSE
 author:              Joshua Ball
 maintainer:          JoshBBall@gmail.com
 -- copyright:           
@@ -12,8 +12,8 @@ category:            Control
 build-type:          Simple
 cabal-version:       >=1.8
 
-executable
-  main-is: SatExampleMain
+executable taffy-sat-example
+  main-is: SatExampleMain.hs
   hs-source-dirs: src
   build-depends:       base ==4.5.*,
                        containers ==0.4.*,

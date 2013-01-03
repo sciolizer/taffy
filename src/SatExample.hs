@@ -5,47 +5,59 @@ import Data.Function
 import qualified Data.Map as M
 import qualified Data.Set as S
 
-import Api
+import Solver
+
+main = do
+  -- todo: change learner to resolve disjunctions, e.g.
+  -- x \/ y and ~y \/ z => x \/ z
+  let learner = const nop
+  (success, (a, b, c)) <- solve learner definition
+  print success
+  mapM_ showVar [a,b,c] where
+    showVar :: IVar Disjunction Bool -> IO ()
+    showVar v = print =< readIVar v
+
+data Disjunction = Disjunction {
+  unDisjunction :: [((Bool -> Bool) {- not or id -}, IVar Disjunction Bool)] }
+
+instance Eq Disjunction where (==) = (==) `on` map snd . unDisjunction
+instance Ord Disjunction where compare = compare `on` map snd . unDisjunction
 
 -- problem: not a \/ b \/ c
 --          not b \/ a
 --          not c \/ a
 
-main = do
-  (success, (a, b, c)) <- solve (const nop) definition
-  print success
-  mapM_ showVar [a,b,c] where
-    showVar :: IVar Clause Bool -> IO ()
-    showVar v = do
-      val <- readIVar v
-      print val
-
-nop = return ()
-
 definition = do
+  -- Since a sat solver does not need to generate new variables or constraints
+  -- during the search process, true and false assignments are just nops.
   binary <- newAVar (M.fromList [(True,nop),(False,nop)])
   liftNew $ do
     a <- newIVar binary
     b <- newIVar binary
     c <- newIVar binary
-    mkClause [(not,a),(id,b),(id,c)]
-    mkClause [(not,b),(id,a)]
-    mkClause [(not,c),(id,a)]
+    mkDisjunction [(not,a),(id,b),(id,c)]
+    mkDisjunction [(not,b),(id,a)]
+    mkDisjunction [(not,c),(id,a)]
     return (a, b, c)
 
-mkClause parts = do
-  let cl = Clause parts
-  newClause cl (S.fromList (map (ivar . snd) parts)) (return False) (resolve cl)
+mkDisjunction parts = do
+  let cl = Disjunction parts
+  newClause
+    cl
+    (S.fromList (map (ivar . snd) parts)) -- dependencies
+    (return False) -- disable garbage collection of constraints
+    (resolve cl)
 
-data Clause = Clause { unClause :: [((Bool -> Bool), IVar Clause Bool)] }
-
-instance Eq Clause where (==) = (==) `on` map snd . unClause
-instance Ord Clause where compare = compare `on` map snd . unClause
-
-resolve :: Clause -> Assign Clause Bool
-resolve (Clause parts) = liftIO $ do
+-- | Return true iff at least one of the variables still
+-- has True as a candidate value.
+--
+-- todo: add the unit literal optimization, by calling setIVar sometimes.
+resolve :: Disjunction -> Assign Disjunction Bool
+resolve (Disjunction parts) = liftIO $ do
   vals <- mapM isPos parts
   return (any id vals) where
     isPos (flip,var) = do
       candidates <- readIVar var
       return . any flip . S.toList $ candidates
+
+nop = return ()
