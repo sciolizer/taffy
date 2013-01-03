@@ -32,29 +32,29 @@ instance Show Disjunction where
 instance (Show v) => Show (Ivar Disjunction v) where show = ivarName
 
 -- problem: not a \/ b \/ c
---          not b \/ a
---          not c \/ a
+--          a \/ not b
+--          a \/ c
 
 definition = do
   -- Since a sat solver does not need to generate new variables or constraints
   -- during the search process, true and false assignments are just nops.
   binary <- newAvar (M.fromList [(True,const nop),(False,const nop)])
   liftNew $ do
-    a <- newNamedIvar binary "a"
-    b <- newNamedIvar binary "b"
-    c <- newNamedIvar binary "c"
+    a <- newNamedIvar "a" binary
+    b <- newNamedIvar "b" binary
+    c <- newNamedIvar "c" binary
     mkDisjunction [(not,a),(id,b),(id,c)]
-    mkDisjunction [(not,b),(id,a)]
-    mkDisjunction [(not,c),(id,a)]
+    mkDisjunction [(id,a),(not,b)]
+    mkDisjunction [(id,a),(id,c)]
     return (a, b, c)
 
 mkDisjunction parts = do
   let cl = Disjunction parts
   newNamedConstraint
+    (show cl)
     cl
     (S.fromList (map (ivar . snd) parts)) -- dependencies
     (resolve cl)
-    (show cl)
 
 -- | Return true iff at least one of the variables still
 -- has True as a candidate value.

@@ -327,9 +327,11 @@ newAvar
   -> Init constraint (Avar constraint a)
 newAvar vs = do
   id <- liftNew $ query nextAvarId
-  newNamedAvar vs ("unnamed avar " ++ show id)
+  newNamedAvar ("unnamed avar " ++ show id) vs
 
-newNamedAvar vs name = do
+-- | Like 'newAvar', but allows you to attach a custom name to the variable
+-- for debugging purposes.
+newNamedAvar name vs = do
   ret <- liftIO $ Avar vs <$> newVar name
   tellAvar ret
   return ret
@@ -338,9 +340,11 @@ newNamedAvar vs name = do
 newIvar :: (Ord a) => Avar constraint a -> New constraint (Ivar constraint a)
 newIvar av = do
   id <- query nextIvarId
-  newNamedIvar av ("unnamed ivar " ++ show id)
+  newNamedIvar ("unnamed ivar " ++ show id) av
 
-newNamedIvar av name = do
+-- | Like 'newIvar', but allows you to attach a custom name to the variable
+-- for debugging purposes.
+newNamedIvar name av = do
   ret <- liftIO $ Ivar av <$> newIORef (IvarState (S.fromList $ M.keys (avarValues av)) M.empty) <*> (Var name <$> newUnique <*> newIORef S.empty)
   tellUntypedIvar (untype ret)
   return ret
@@ -398,9 +402,11 @@ newConstraint
   -> New constraint ()
 newConstraint c watched resolve = do
   id <- query nextConstraintId
-  newNamedConstraint c watched resolve ("unnamed constraint " ++ show id)
+  newNamedConstraint ("unnamed constraint " ++ show id) c watched resolve
 
-newNamedConstraint c watched resolve name =
+-- | Like 'newConstraint', but allows you to attach a custom name for
+-- debugging purposes.
+newNamedConstraint name c watched resolve =
   tellClause (Clause name c watched resolve)
 
 runNew :: New c a -> IORef NewState -> IO Bool -> IO (a, [(UntypedIvar c)], [Clause c])
