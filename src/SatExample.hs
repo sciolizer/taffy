@@ -30,7 +30,7 @@ instance Ord Disjunction where compare = compare `on` map snd . unDisjunction
 definition = do
   -- Since a sat solver does not need to generate new variables or constraints
   -- during the search process, true and false assignments are just nops.
-  binary <- newAVar (M.fromList [(True,const nop),(False,const nop)])
+  binary <- newAvar (M.fromList [(True,const nop),(False,const nop)])
   liftNew $ do
     a <- newIvar binary
     b <- newIvar binary
