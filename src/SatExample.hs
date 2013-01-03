@@ -15,7 +15,7 @@ main = do
   print success
   mapM_ showVar [a,b,c] where
     showVar :: IVar Disjunction Bool -> IO ()
-    showVar v = print =< readIVar v
+    showVar v = print =<< readIvar v
 
 data Disjunction = Disjunction {
   unDisjunction :: [((Bool -> Bool) {- not or id -}, IVar Disjunction Bool)] }
@@ -30,11 +30,11 @@ instance Ord Disjunction where compare = compare `on` map snd . unDisjunction
 definition = do
   -- Since a sat solver does not need to generate new variables or constraints
   -- during the search process, true and false assignments are just nops.
-  binary <- newAVar (M.fromList [(True,nop),(False,nop)])
+  binary <- newAVar (M.fromList [(True,const nop),(False,const nop)])
   liftNew $ do
-    a <- newIVar binary
-    b <- newIVar binary
-    c <- newIVar binary
+    a <- newIvar binary
+    b <- newIvar binary
+    c <- newIvar binary
     mkDisjunction [(not,a),(id,b),(id,c)]
     mkDisjunction [(not,b),(id,a)]
     mkDisjunction [(not,c),(id,a)]
@@ -42,10 +42,9 @@ definition = do
 
 mkDisjunction parts = do
   let cl = Disjunction parts
-  newClause
+  newConstraint
     cl
     (S.fromList (map (ivar . snd) parts)) -- dependencies
-    (return False) -- disable garbage collection of constraints
     (resolve cl)
 
 -- | Return true iff at least one of the variables still
@@ -57,7 +56,7 @@ resolve (Disjunction parts) = liftIO $ do
   vals <- mapM isPos parts
   return (any id vals) where
     isPos (flip,var) = do
-      candidates <- readIVar var
+      candidates <- readIvar var
       return . any flip . S.toList $ candidates
 
 nop = return ()
