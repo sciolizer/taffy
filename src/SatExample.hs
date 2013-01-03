@@ -1,6 +1,8 @@
 {-# LANGUAGE FlexibleInstances #-}
 module SatExample where
 
+import Control.Applicative
+import Control.Monad
 import Control.Monad.Trans
 import Data.Function
 import Data.List
@@ -57,15 +59,18 @@ mkDisjunction parts = do
     (resolve cl)
 
 -- | Return true iff at least one of the variables still
--- has True as a candidate value.
---
--- todo: add the unit literal optimization, by calling setIvar sometimes.
+-- has True as a candidate value. If all but one of the literals
+-- are False, the remaining literal is set to True.
 resolve :: Disjunction -> Assign Disjunction Bool
-resolve (Disjunction parts) = liftIO $ do
-  vals <- mapM isPos parts
-  return (any id vals) where
-    isPos (flip,var) = do
-      candidates <- readIvar var
-      return . any flip . S.toList $ candidates
+resolve (Disjunction parts) = z where
+  z = do
+    trueLiterals <- liftIO $ filterM isPossiblyTrue parts
+    case trueLiterals of
+      [] -> return False
+      [(flag,var)] -> do
+        setIvar var (flag True) -- unit literal optimization from DPLL
+        return True
+      _ -> return True
+  isPossiblyTrue (flip,var) = any flip . S.toList <$> readIvar var
 
 nop = return ()

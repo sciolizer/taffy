@@ -1,7 +1,6 @@
 Performance
 ===========
 
-* Unit literal optimization (in the example)
 * Clause learning (solver and example)
 * Better variable ordering / topology tracking
 * Random restarts

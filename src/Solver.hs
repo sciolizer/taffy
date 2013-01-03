@@ -500,6 +500,7 @@ runAssign (Assign m) = runWriterT m
 dirtyVar iv orig = Assign $ do
   let ref = ivarState iv
   candidates <- liftIO $ _ivarCandidates <$> readIORef ref
+  when (candidates /= orig) $ do
   let internalBug = error
   let effect =
         case S.toList candidates of
