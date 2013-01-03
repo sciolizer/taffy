@@ -1,6 +1,7 @@
 module Sat where
 
 import Control.Monad.Trans
+import Data.Function
 import qualified Data.Map as M
 import qualified Data.Set as S
 
@@ -36,7 +37,10 @@ mkClause parts = do
   let cl = Clause parts
   newClause cl (S.fromList (map (ivar . snd) parts)) (return False) (resolve cl)
 
-data Clause = Clause [((Bool -> Bool), IVar Clause Bool)]
+data Clause = Clause { unClause :: [((Bool -> Bool), IVar Clause Bool)] }
+
+instance Eq Clause where (==) = (==) `on` map snd . unClause
+instance Ord Clause where compare = compare `on` map snd . unClause
 
 resolve :: Clause -> Assign Clause Bool
 resolve (Clause parts) = liftIO $ do

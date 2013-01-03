@@ -271,6 +271,9 @@ newAVar vs = do
   tellAvar ret
   return ret
 
+instance Eq (IVar c a) where (==) = (==) `on` varIdentity . ivar
+instance Ord (IVar c a) where compare = compare `on` varIdentity . ivar
+
 -- newIVar :: AVar c a -> New c (IVar c a)
 newIVar av = do
   ret <- liftIO $ IVar av <$> newIORef (IVarState (S.fromList $ M.keys (avarValues av)) M.empty)
