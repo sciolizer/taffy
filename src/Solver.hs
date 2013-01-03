@@ -4,7 +4,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
-module Api (
+module Solver (
   -- * Solving
   solve,
 
