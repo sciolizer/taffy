@@ -38,6 +38,7 @@ module Solver (
   Ivar(),
   newIvar,
   newNamedIvar,
+  ivarName,
   readIvar,
   setIvar,
   shrinkIvar,
@@ -343,6 +344,10 @@ newNamedIvar av name = do
   ret <- liftIO $ Ivar av <$> newIORef (IvarState (S.fromList $ M.keys (avarValues av)) M.empty) <*> (Var name <$> newUnique <*> newIORef S.empty)
   tellUntypedIvar (untype ret)
   return ret
+
+-- | Returns the name assigned to the given variable.
+ivarName :: Ivar constraint a -> String
+ivarName = varName . ivar
 
 -- | Returns the values which are not currently in direct violation
 -- of a constraint. A singleton value indicates that the variable

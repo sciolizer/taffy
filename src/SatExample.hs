@@ -1,7 +1,9 @@
+{-# LANGUAGE FlexibleInstances #-}
 module SatExample where
 
 import Control.Monad.Trans
 import Data.Function
+import Data.List
 import qualified Data.Map as M
 import qualified Data.Set as S
 
@@ -22,6 +24,12 @@ data Disjunction = Disjunction {
 
 instance Eq Disjunction where (==) = (==) `on` map snd . unDisjunction
 instance Ord Disjunction where compare = compare `on` map snd . unDisjunction
+instance Show Disjunction where
+  show (Disjunction parts) = intercalate " \\/ " (map showPart parts) where
+    showPart (f, ivar) = prefix f ++ show ivar
+    prefix f = if f True then "" else "not "
+
+instance (Show v) => Show (Ivar Disjunction v) where show = ivarName
 
 -- problem: not a \/ b \/ c
 --          not b \/ a
@@ -32,9 +40,9 @@ definition = do
   -- during the search process, true and false assignments are just nops.
   binary <- newAvar (M.fromList [(True,const nop),(False,const nop)])
   liftNew $ do
-    a <- newIvar binary
-    b <- newIvar binary
-    c <- newIvar binary
+    a <- newNamedIvar binary "a"
+    b <- newNamedIvar binary "b"
+    c <- newNamedIvar binary "c"
     mkDisjunction [(not,a),(id,b),(id,c)]
     mkDisjunction [(not,b),(id,a)]
     mkDisjunction [(not,c),(id,a)]
@@ -42,10 +50,11 @@ definition = do
 
 mkDisjunction parts = do
   let cl = Disjunction parts
-  newConstraint
+  newNamedConstraint
     cl
     (S.fromList (map (ivar . snd) parts)) -- dependencies
     (resolve cl)
+    (show cl)
 
 -- | Return true iff at least one of the variables still
 -- has True as a candidate value.
