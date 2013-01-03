@@ -142,9 +142,13 @@ instance (Eq c) => Eq (Clause c) where (==) = (==) `on` clauseIdentity
 instance (Ord c) => Ord (Clause c) where compare = compare `on` clauseIdentity
 instance Show (Clause c) where show = clauseName
 
--- | A monad for creating 'Ivar's and constraints.
-newtype New constraint a = New (RWST (IORef NewState) [Either (UntypedIvar constraint) (IO Bool -> Clause constraint)] () IO a)
+-- | A monad for creating 'Ivar's and constraints. Do not call readIvar
+-- while in this monad.
+newtype New constraint a = New (RWST NewContext [Either (UntypedIvar constraint) (IO Bool -> Clause constraint)] () IO a)
   deriving (Applicative, Functor, Monad, MonadIO)
+
+newtype NewContext = NewContext {
+  _newState :: IORef NewState }
 
 data NewState = NewState {
   _nextAvarId :: Int,
@@ -175,7 +179,7 @@ data SolveState c = SolveState {
   _learntClauses :: S.Set (Clause c) }
 
 data SolveContext c = SolveContext {
-  _newState :: IORef NewState,
+  _solveNewState :: IORef NewState,
   _learner :: [c] -> New c () }
 
 instance MonadReader (SolveContext c) (Solve c) where
@@ -196,6 +200,7 @@ makeLenses ''SolveState
 makeLenses ''SolveContext
 makeLenses ''AssignmentFrame
 makeLenses ''NewState
+makeLenses ''NewContext
 
 -- Attempts to find a satisfying assignment.
 solve
@@ -283,7 +288,7 @@ propagateEffects as = do
 
 runEffects :: [Assignment c] -> Solve c ([UntypedIvar c], [Clause c])
 runEffects as = do
-  ns <- view newState
+  ns <- view solveNewState
   liftIO $ do
     -- todo: change collectable to be dependent on whether
     -- the instigating variable has multiple candidate values.
@@ -410,7 +415,7 @@ newNamedConstraint name c watched resolve =
 
 runNew :: New c a -> IORef NewState -> IO Bool -> IO (a, [(UntypedIvar c)], [Clause c])
 runNew (New m) newstate collectable = do
-  (ret, mix) <- evalRWST m newstate ()
+  (ret, mix) <- evalRWST m (NewContext newstate) ()
   let (ims, cs) = partitionEithers mix
   return (ret, ims, map ($ collectable) cs)
 
@@ -422,7 +427,7 @@ tellUntypedIvar = New . tell . (:[]) . Left
 
 query :: (Num a) => Simple Lens NewState a -> New c a
 query lens = do
-  ref <- New ask
+  ref <- New (asks _newState)
   liftIO $ do
     ret <- view lens <$> readIORef ref
     modifyIORef ref (over lens (+1))
