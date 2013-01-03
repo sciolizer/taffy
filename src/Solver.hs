@@ -63,6 +63,7 @@ import Control.Monad.Writer
 import Data.Either
 import Data.Function
 import Data.IORef
+import Data.List
 import qualified Data.Map as M
 import Data.Maybe
 import qualified Data.Set as S
@@ -89,7 +90,13 @@ instance Show (Var constraint) where show = varName
 
 -- | A family of instance variables.
 data Avar constraint a = Avar {
-  avarValues :: M.Map a (Ivar constraint a -> New constraint ()),
+
+  -- Ordered by cheapest choice, that is, if x comes before y,
+  -- then the product of the sizes of x's generated variables will
+  -- be no more than y's product.
+  -- (constraints generated is not a factor in ordering, since they
+  -- don't actually make the problem larger)
+  avarValues :: [(a,Ivar constraint a -> New constraint ())],
 
   -- | Used by safetyCheck.
   inNewOrInitMonad :: IO Bool,
@@ -335,7 +342,7 @@ newVar name = Var name <$> newUnique <*> newIORef S.empty
 -- so that it can give priority to assignments producing fewer new variables
 -- and clauses.
 newAvar
-  :: M.Map a (Ivar constraint a -> New constraint ()) -- ^ A map from values to side effects. If you do not need a side effect, just use 'return ()'.
+  :: (Ord a) => M.Map a (Ivar constraint a -> New constraint ()) -- ^ A map from values to side effects. If you do not need a side effect, just use 'return ()'.
   -> Init constraint (Avar constraint a)
 newAvar vs = do
   id <- liftNew $ query nextAvarId
@@ -345,7 +352,7 @@ newAvar vs = do
 -- for debugging purposes.
 newNamedAvar name vs = do
   making <- Init ask
-  ret <- liftIO $ Avar vs (readIORef making) <$> newVar name
+  ret <- liftIO $ Avar (M.toList vs) (readIORef making) <$> newVar name
   tellAvar ret
   return ret
 
@@ -358,7 +365,10 @@ newIvar av = do
 -- | Like 'newIvar', but allows you to attach a custom name to the variable
 -- for debugging purposes.
 newNamedIvar name av = do
-  ret <- liftIO $ Ivar av <$> newIORef (IvarState (S.fromList $ M.keys (avarValues av)) M.empty) <*> (Var name <$> newUnique <*> newIORef S.empty)
+  ret <- liftIO $ do
+    state <- newIORef . flip IvarState M.empty . S.fromList . map fst . avarValues $ av
+    var <- Var name <$> newUnique <*> newIORef S.empty
+    return (Ivar av state var)
   tellUntypedIvar (untype ret)
   return ret
 
@@ -487,7 +497,7 @@ dirtyVar iv orig = Assign $ do
   let effect =
         case S.toList candidates of
           [v] ->
-            case M.lookup v (avarValues . ivarAvar $ iv) of
+            case lookup v (avarValues . ivarAvar $ iv) of
               Nothing -> internalBug "one of candidates is invalid"
               Just x -> x
           _ -> const nop
