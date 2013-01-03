@@ -11,7 +11,8 @@ import Api
 --          not c \/ a
 
 main = do
-  (a, b, c) <- solve initialize (const nop)
+  (success, (a, b, c)) <- solve (const nop) definition
+  print success
   mapM_ showVar [a,b,c] where
     showVar :: IVar Clause Bool -> IO ()
     showVar v = do
@@ -20,7 +21,7 @@ main = do
 
 nop = return ()
 
-initialize = do
+definition = do
   binary <- newAVar (M.fromList [(True,nop),(False,nop)])
   liftNew $ do
     a <- newIVar binary

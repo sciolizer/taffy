@@ -1,4 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -42,6 +43,7 @@ import Data.Either
 import Data.Function
 import Data.IORef
 import qualified Data.Map as M
+import Data.Maybe
 import qualified Data.Set as S
 import Data.Unique
 
@@ -83,14 +85,13 @@ data IVarState c a = IVarState {
   _ivarPreviousAssignments :: M.Map a (S.Set (Clause c)) }
 
 data UntypedIvar c = UntypedIvar {
-  uivarIdentity :: Unique,
-  uivarCandidates :: IO Int,
+  uivarVar :: Var c,
 
   -- ^ A sequence of calls to setIVar for each remaining candidate.
-  everyValue :: IO [Assign c ()] }
+  uivarValues :: IO [Assign c ()] }
 
-instance Eq (UntypedIvar c) where (==) = (==) `on` uivarIdentity
-instance Ord (UntypedIvar c) where compare = compare `on` uivarIdentity
+instance Eq (UntypedIvar c) where (==) = (==) `on` varIdentity . uivarVar
+instance Ord (UntypedIvar c) where compare = compare `on` varIdentity . uivarVar
 
 data Clause c = Clause {
   clauseClause :: c,
@@ -115,28 +116,99 @@ newtype Assign c a = Assign (WriterT [Assignment c] IO a)
 
 data Assignment c = Assignment {
   assignmentVar :: (UntypedIvar c),
-  assignmentEffect :: Maybe (New c ()),
+  assignmentEffect :: Maybe (New c ()), -- todo: check to see if this maybe is actually necessary
   assignmentUndo :: IO () }
 
 newtype Solve c a = Solve (RWST ([c] -> New c ()) () (SolveState c) IO a)
   deriving (Applicative, Functor, Monad, MonadIO)
 
+instance MonadState (SolveState c) (Solve c) where -- todo
+
 data SolveState c = SolveState {
+  _assignedVars :: [AssignmentFrame c], -- head is most recently assigned
   _unassignedVars :: S.Set (UntypedIvar c),
   _unrevisedClauses :: S.Set (Clause c),
   _learntClauses :: S.Set (Clause c) }
 
+data AssignmentFrame c = AssignmentFrame {
+  _frameUndo :: IO (),
+  _frameUntriedValues :: [Assign c ()],
+  _frameDecisionLevel :: Bool }
+
 makeLenses ''IVarState
 makeLenses ''SolveState
+makeLenses ''AssignmentFrame
 
--- solve :: Init c a -> ([c] -> New ()) -> IO (Bool, a)
-solve p i = undefined {- do
-  (ret, vars, clauses) <- runInit i
-  completed <- runSolve backtrack vars (map snd clauses) p
-  case completed of
-    Nothing -> return (True, ret)
-    Just () -> return (False, ret)
+-- solve :: ([c] -> New c ()) -> Init c a -> IO (Bool, a)
+solve resolver definition = do
+  (ret, _avars, ivars, clauses) <- runInit definition
+  mapM_ attach clauses -- fill the refs of each into each other
+  let ss = SolveState [] (S.fromList ivars) (S.fromList clauses) S.empty
+  completed <- evalSolve loop resolver ss
+  return (completed, ret)
 
+attach :: Clause c -> IO ()
+attach = undefined
+
+-- loop :: Solve c Bool
+loop = do
+  mbc <- popClause
+  case mbc of
+    Nothing -> do
+      mbv <- popVar
+      case mbv of
+        Nothing -> return True
+        Just v -> do
+          vals <- liftIO $ uivarValues v
+          case vals of
+            [] -> do
+              pushVar v
+              jumpback
+            [_] -> do
+              assignedVars %= (AssignmentFrame nop [] False :)
+              loop
+            (x:xs) -> do
+              ((), [a]) <- liftIO $ runAssign x
+              assignedVars %= (AssignmentFrame (assignmentUndo a) xs True :)
+              propagateEffects [a]
+              loop
+    Just c -> do
+      (satisfiable, as) <- liftIO $ runAssign (clauseResolve c)
+      if not satisfiable then jumpback else do
+      assignedVars %= (reverse (map (\a -> AssignmentFrame (assignmentUndo a) [] False) as) ++)
+      propagateEffects as
+      loop
+
+nop = return ()
+
+jumpback :: Solve c Bool
+jumpback = undefined
+
+-- propagateEffects :: [Assignment c] -> Solve c ()
+propagateEffects as = do
+  (newVars, newClauses) <- liftIO $ runEffects as
+  unassignedVars %= S.union (S.fromList newVars)
+  unrevisedClauses %= S.union (S.fromList newClauses)
+  forM_ as $ \a -> do
+    cs <- liftIO $ readIORef (varClauses . uivarVar . assignmentVar $ a)
+    unrevisedClauses %= S.union cs
+
+runEffects :: [Assignment c] -> IO ([UntypedIvar c], [Clause c])
+runEffects as = do
+  let es = catMaybes $ map assignmentEffect as
+  out <- mapM runNew es
+  return . (\(vss,css) -> (concat vss, concat css)) . unzip . map (\((),v,c) -> (v,c)) $ out
+
+popVar :: Solve c (Maybe (UntypedIvar c))
+popVar = undefined
+
+pushVar :: UntypedIvar c -> Solve c ()
+pushVar = undefined
+
+popClause :: Solve c (Maybe (Clause c))
+popClause = undefined
+
+{-
 backtrack :: Solve c ()
 backtrack = do
   mbVar <- selectUnassignedVariable
@@ -180,7 +252,7 @@ newVar = Var <$> newUnique <*> newIORef S.empty
 -- newAVar :: M.Map a (New ()) -> Init c (AVar c a)
 newAVar vs = do
   ret <- liftIO $ AVar vs <$> newVar
-  tellVar (avar ret)
+  tellAvar ret
   return ret
 
 -- newIVar :: AVar c a -> New c (IVar c a)
@@ -213,13 +285,12 @@ modifyIVar iv mod = do
   dirtyVar iv orig
 
 -- untype :: (Ord a) => IVar c a -> (UntypedIvar c)
-untype iv = UntypedIvar identity count setters where
-  identity = varIdentity . ivar $ iv
+untype iv = UntypedIvar identity setters where
+  identity = ivar iv
   candidates = _ivarCandidates <$> readIORef (ivarState iv)
-  count = S.size <$> candidates
   setters = do
     cs <- S.toList <$> candidates
-    return (map (setIVar iv) cs)
+    return (map (setIVar iv) cs) -- todo: pick a more optimal ordering
 
 newClause
   :: clause
@@ -250,8 +321,8 @@ runInit (Init m) = do
 liftNew :: New c a -> Init c a
 liftNew = Init . lift
 
-tellVar :: Var c {- assumed AVar -} -> Init c ()
-tellVar = Init . tell . (:[])
+tellAvar :: AVar c a -> Init c ()
+tellAvar = Init . tell . (:[]) . avar
 
 -- runAssign :: Assign c a -> IO (a, [Assignment])
 runAssign (Assign m) = runWriterT m
