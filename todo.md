@@ -2,6 +2,7 @@ Essential
 =========
 
 * Check for empty variables in propagateEffects (do not rely only on invocation of constraint)
+* Better value ordering (this is essential for avoiding infinite loops)
 
 Performance
 ===========
@@ -9,7 +10,6 @@ Performance
 * Unit literal optimization (in the example)
 * Clause learning (solver and example)
 * Better variable ordering / topology tracking
-* Better value ordering
 * Random restarts
 * ivarPreviousAssignments
 
