@@ -14,11 +14,11 @@ main = do
   (success, (a, b, c)) <- solve learner definition
   print success
   mapM_ showVar [a,b,c] where
-    showVar :: IVar Disjunction Bool -> IO ()
+    showVar :: Ivar Disjunction Bool -> IO ()
     showVar v = print =<< readIvar v
 
 data Disjunction = Disjunction {
-  unDisjunction :: [((Bool -> Bool) {- not or id -}, IVar Disjunction Bool)] }
+  unDisjunction :: [((Bool -> Bool) {- not or id -}, Ivar Disjunction Bool)] }
 
 instance Eq Disjunction where (==) = (==) `on` map snd . unDisjunction
 instance Ord Disjunction where compare = compare `on` map snd . unDisjunction
@@ -50,7 +50,7 @@ mkDisjunction parts = do
 -- | Return true iff at least one of the variables still
 -- has True as a candidate value.
 --
--- todo: add the unit literal optimization, by calling setIVar sometimes.
+-- todo: add the unit literal optimization, by calling setIvar sometimes.
 resolve :: Disjunction -> Assign Disjunction Bool
 resolve (Disjunction parts) = liftIO $ do
   vals <- mapM isPos parts

@@ -16,26 +16,26 @@ module Solver (
 
   -- * Variables
   -- | Two kinds of variables are supported: abstract and instance.
-  -- Instance variables ('IVar's) are variables in the ordinary sense
-  -- of constraint problems. Abstract variables ('AVar's) track groups
+  -- Instance variables ('Ivar's) are variables in the ordinary sense
+  -- of constraint problems. Abstract variables ('Avar's) track groups
   -- of similar instance variables. Every instance variable belongs to
   -- one abstract variable. Constraints can be defined on instance
   -- variables, abstract variables, or a combination. The advantage of
   -- this is that constraints can be learned over entire families of
   -- subproblems, instead of being localized to individual subproblems.
   -- By explicitly encoding the symmetry of your problem into constraints
-  -- over 'AVar's, you can avoid a lot of duplicated computation.
+  -- over 'Avar's, you can avoid a lot of duplicated computation.
   Var(),
   avar,
   ivar,
 
   -- ** Abstract variables
-  AVar(),
+  Avar(),
   newAvar,
   newNamedAvar,
 
   -- ** Instance variables
-  IVar(),
+  Ivar(),
   newIvar,
   newNamedIvar,
   readIvar,
@@ -66,7 +66,7 @@ import Data.Maybe
 import qualified Data.Set as S
 import Data.Unique
 
--- | An untyped container for both 'AVar's and 'IVar's. Use it as an argument
+-- | An untyped container for both 'Avar's and 'Ivar's. Use it as an argument
 -- to the 'newConstraint' function.
 data Var constraint = Var {
   varName :: String,
@@ -83,22 +83,26 @@ data Var constraint = Var {
 
 instance Eq (Var constraint) where (==) = (==) `on` varIdentity
 instance Ord (Var constraint) where compare = compare `on` varIdentity
+instance Show (Var constraint) where show = varName
 
 -- | A family of instance variables.
-data AVar constraint a = AVar {
-  avarValues :: M.Map a (IVar constraint a -> New constraint ()),
+data Avar constraint a = Avar {
+  avarValues :: M.Map a (Ivar constraint a -> New constraint ()),
   avar :: Var constraint -- ^ Wraps an abstract variable for use as a constraint dependency.
   }
 
 -- | An instance variable, belonging to one abstract variable. It can
--- be constrained indirectly (through its parent 'AVar') or directly.
-data IVar constraint a = IVar {
-  ivarAvar :: AVar constraint a,
-  ivarState :: IORef (IVarState constraint a),
+-- be constrained indirectly (through its parent 'Avar') or directly.
+data Ivar constraint a = Ivar {
+  ivarAvar :: Avar constraint a,
+  ivarState :: IORef (IvarState constraint a),
   ivar :: Var constraint -- ^ Wraps an instance variable for use as a constraint dependency.
   }
 
-data IVarState constraint a = IVarState {
+instance Eq (Ivar constraint a) where (==) = (==) `on` varIdentity . ivar
+instance Ord (Ivar constraint a) where compare = compare `on` varIdentity . ivar
+
+data IvarState constraint a = IvarState {
   -- | If empty, problem is in conflict.
   -- If singleton, then a value has been chosen.
   -- If more than one item, a choice has yet to be made.
@@ -106,7 +110,7 @@ data IVarState constraint a = IVarState {
 
   -- | Everytime ivarCandidates is reduced to a singleton, that value is
   -- added here. If it already exist in here, then the associated (New ())
-  -- in the AVar is not executed, since we know it has already been executed
+  -- in the Avar is not executed, since we know it has already been executed
   -- once. If a clause using this ivar is garbage collected, then the
   -- value is removed from here, so that future re-assignments will
   -- re-instantiate the clause.
@@ -121,8 +125,10 @@ data UntypedIvar c = UntypedIvar {
 
 instance Eq (UntypedIvar c) where (==) = (==) `on` varIdentity . uivarVar
 instance Ord (UntypedIvar c) where compare = compare `on` varIdentity . uivarVar
+instance Show (UntypedIvar c) where show = show . uivarVar
 
 data Clause c = Clause {
+  clauseName :: String,
   clauseClause :: c,
   clauseVars :: S.Set (Var c),
   clauseResolve :: Assign c Bool,
@@ -133,8 +139,9 @@ clauseIdentity c = (clauseClause c, clauseVars c)
 
 instance (Eq c) => Eq (Clause c) where (==) = (==) `on` clauseIdentity
 instance (Ord c) => Ord (Clause c) where compare = compare `on` clauseIdentity
+instance Show (Clause c) where show = clauseName
 
--- | A monad for creating 'IVar's and constraints.
+-- | A monad for creating 'Ivar's and constraints.
 newtype New constraint a = New (RWST (IORef NewState) [Either (UntypedIvar constraint) (IO Bool -> Clause constraint)] () IO a)
   deriving (Applicative, Functor, Monad, MonadIO)
 
@@ -143,11 +150,11 @@ data NewState = NewState {
   _nextIvarId :: Int,
   _nextConstraintId :: Int }
 
--- | A special case of the 'New' monad which also allows creating 'AVar's.
+-- | A special case of the 'New' monad which also allows creating 'Avar's.
 newtype Init constraint a = Init (WriterT [Var constraint] (New constraint) a)
   deriving (Applicative, Functor, Monad, MonadIO)
 
--- | A monad for making assignments to 'IVar's, which a constraint will
+-- | A monad for making assignments to 'Ivar's, which a constraint will
 -- do when it deduces an implication.
 newtype Assign constraint a = Assign (WriterT [Assignment constraint] IO a)
   deriving (Applicative, Functor, Monad, MonadIO)
@@ -183,7 +190,7 @@ data AssignmentFrame c = AssignmentFrame {
   _frameUntriedValues :: [Assign c ()],
   _frameDecisionLevel :: Bool }
 
-makeLenses ''IVarState
+makeLenses ''IvarState
 makeLenses ''SolveState
 makeLenses ''SolveContext
 makeLenses ''AssignmentFrame
@@ -193,7 +200,7 @@ makeLenses ''NewState
 solve
   :: (Ord constraint)
   => ([constraint] -> New constraint ()) -- ^ Constraint learning function, for conflict-directed constraint learning. The head of the given list is the constraint which produced a contradiction.
-  -> Init constraint a -- ^ Problem definition. You should return the 'IVar's that you plan on reading from (using 'readIvar') when a solution is found.
+  -> Init constraint a -- ^ Problem definition. You should return the 'Ivar's that you plan on reading from (using 'readIvar') when a solution is found.
   -> IO (Bool, a) -- ^ 'False' iff no solution exists. Values returned from 'readIvar' after solve completes are 'undefined' if 'False' is returned; otherwise they will be singleton sets containing the satisfying assignment.
 solve learner definition = do
   (ret, newstate, _avars, ivars, clauses) <- runInit definition
@@ -209,13 +216,16 @@ attach c = mapM_ insert . S.toList . clauseVars $ c where
 -- loop :: Solve c Bool
 loop = do
   mbc <- pop unrevisedClauses
+  debug $ "popped clause: " ++ show mbc
   case mbc of
     Nothing -> do
       mbv <- pop unassignedVars
+      debug $ "popped var: " ++ show mbv
       case mbv of
         Nothing -> return True
         Just v -> do
           vals <- liftIO $ uivarValues v
+          debug $ "has " ++ show (length vals) ++ " vals"
           case vals of
             [] -> do
               unassignedVars %= S.insert v
@@ -240,10 +250,12 @@ jumpback = do
   let (pop,keep) = span (not . _frameDecisionLevel) vs
   -- todo: put clause learning in here
   liftIO $ mapM_ _frameUndo pop
+  debug $ "undid " ++ show (length pop) ++ " frames"
   stepback keep
 
 stepback [] = return False
 stepback (x:xs) = do
+  debug "stepback"
   liftIO $ _frameUndo x
   case _frameUntriedValues x of
     [] -> stepback xs
@@ -260,6 +272,7 @@ propagateEffects as = do
   -- todo: jumpback if any of the assignments cause a variable's
   -- candidate list to become empty
   (newVars, newConstraints) <- runEffects as
+  debug $ "generated " ++ show (length newVars) ++ " new vars and " ++ show (length newConstraints) ++ " new constraints"
   unassignedVars %= S.union (S.fromList newVars)
   unrevisedClauses %= S.union (S.fromList newConstraints)
   forM_ as $ \a -> do
@@ -297,7 +310,7 @@ newVar name = Var name <$> newUnique <*> newIORef S.empty
 -- Although any IO action can be put into the side effect, its main
 -- purpose is to create new variables and new clauses on those variables.
 -- For example, if your problem has, conceptually, a variable whose value
--- is some unknown list, you can create an 'AVar' which represents the two
+-- is some unknown list, you can create an 'Avar' which represents the two
 -- possible constructors for the list: Cons and Nil. You can define the
 -- side effect for the Cons case as creating two new instance variables:
 -- one for the value in the head and the other for the constructor of the
@@ -309,28 +322,25 @@ newVar name = Var name <$> newUnique <*> newIORef S.empty
 -- so that it can give priority to assignments producing fewer new variables
 -- and clauses.
 newAvar
-  :: M.Map a (IVar constraint a -> New constraint ()) -- ^ A map from values to side effects. If you do not need a side effect, just use 'return ()'.
-  -> Init constraint (AVar constraint a)
+  :: M.Map a (Ivar constraint a -> New constraint ()) -- ^ A map from values to side effects. If you do not need a side effect, just use 'return ()'.
+  -> Init constraint (Avar constraint a)
 newAvar vs = do
   id <- liftNew $ query nextAvarId
   newNamedAvar vs ("unnamed avar " ++ show id)
 
 newNamedAvar vs name = do
-  ret <- liftIO $ AVar vs <$> newVar name
+  ret <- liftIO $ Avar vs <$> newVar name
   tellAvar ret
   return ret
 
-instance Eq (IVar constraint a) where (==) = (==) `on` varIdentity . ivar
-instance Ord (IVar constraint a) where compare = compare `on` varIdentity . ivar
-
--- | Creates a new instance variable with the given 'AVar' as its parent.
-newIvar :: (Ord a) => AVar constraint a -> New constraint (IVar constraint a)
+-- | Creates a new instance variable with the given 'Avar' as its parent.
+newIvar :: (Ord a) => Avar constraint a -> New constraint (Ivar constraint a)
 newIvar av = do
   id <- query nextIvarId
   newNamedIvar av ("unnamed ivar " ++ show id)
 
 newNamedIvar av name = do
-  ret <- liftIO $ IVar av <$> newIORef (IVarState (S.fromList $ M.keys (avarValues av)) M.empty) <*> (Var name <$> newUnique <*> newIORef S.empty)
+  ret <- liftIO $ Ivar av <$> newIORef (IvarState (S.fromList $ M.keys (avarValues av)) M.empty) <*> (Var name <$> newUnique <*> newIORef S.empty)
   tellUntypedIvar (untype ret)
   return ret
 
@@ -342,25 +352,25 @@ newNamedIvar av name = do
 -- has returned 'True', or inside the 'Assign' monad given to 'newConstraint'.
 -- Its behavior is undefined when called from inside the 'New' monad or
 -- the 'Init' monad.
-readIvar :: IVar constraint a -> IO (S.Set a)
+readIvar :: Ivar constraint a -> IO (S.Set a)
 readIvar iv = _ivarCandidates <$> readIORef (ivarState iv)
 
 -- | Removes all but the given value from the variable's set of
 -- candidate values. If the given value is already in violation of
 -- another constraint, the set of associated values will become empty,
 -- and the solver will begin backjumping.
-setIvar :: (Ord a) => IVar constraint a -> a -> Assign constraint ()
-setIvar iv v = modifyIVar iv collapse where
+setIvar :: (Ord a) => Ivar constraint a -> a -> Assign constraint ()
+setIvar iv v = modifyIvar iv collapse where
   collapse cds | S.member v cds = S.singleton v
                | otherwise = S.empty
 
 -- | Removes the given value from the variable's set of candidate values.
 -- If the set becomes empty as a result, the solver will begin backjumping.
-shrinkIvar :: (Ord a) => IVar constraint a -> a -> Assign constraint ()
-shrinkIvar iv v = modifyIVar iv (S.delete v)
+shrinkIvar :: (Ord a) => Ivar constraint a -> a -> Assign constraint ()
+shrinkIvar iv v = modifyIvar iv (S.delete v)
 
--- modifyIVar :: IVar c a -> (S.Set a -> S.Set a) -> Assign c ()
-modifyIVar iv mod = do
+-- modifyIvar :: Ivar c a -> (S.Set a -> S.Set a) -> Assign c ()
+modifyIvar iv mod = do
   orig <- liftIO $ do
     let ref = ivarState iv
     candidates <- _ivarCandidates <$> readIORef ref
@@ -368,7 +378,7 @@ modifyIVar iv mod = do
     return candidates
   dirtyVar iv orig
 
--- untype :: (Ord a) => IVar c a -> (UntypedIvar c)
+-- untype :: (Ord a) => Ivar c a -> (UntypedIvar c)
 untype iv = UntypedIvar (ivar iv) (avar . ivarAvar $ iv) setters where
   candidates = _ivarCandidates <$> readIORef (ivarState iv)
   setters = do
@@ -383,10 +393,10 @@ newConstraint
   -> New constraint ()
 newConstraint c watched resolve = do
   id <- query nextConstraintId
-  newNamedConstraint c watched resolve id
+  newNamedConstraint c watched resolve ("unnamed constraint " ++ show id)
 
 newNamedConstraint c watched resolve name =
-  tellClause (Clause c watched resolve)
+  tellClause (Clause name c watched resolve)
 
 runNew :: New c a -> IORef NewState -> IO Bool -> IO (a, [(UntypedIvar c)], [Clause c])
 runNew (New m) newstate collectable = do
@@ -414,17 +424,17 @@ runInit (Init m) = do
   ((ret, avars), ivars, cs) <- runNew (runWriterT m) newstate (return False)
   return (ret, newstate, avars, ivars, cs)
 
--- | Lift 'IVar' and constraint creation into the 'Init' monad.
+-- | Lift 'Ivar' and constraint creation into the 'Init' monad.
 liftNew :: New constraint a -> Init constraint a
 liftNew = Init . lift
 
-tellAvar :: AVar c a -> Init c ()
+tellAvar :: Avar c a -> Init c ()
 tellAvar = Init . tell . (:[]) . avar
 
 -- runAssign :: Assign c a -> IO (a, [Assignment])
 runAssign (Assign m) = runWriterT m
 
--- dirtyVar :: IVar c a -> S.Set a -> Assign c ()
+-- dirtyVar :: Ivar c a -> S.Set a -> Assign c ()
 dirtyVar iv orig = Assign $ do
   let ref = ivarState iv
   candidates <- liftIO $ _ivarCandidates <$> readIORef ref
@@ -449,3 +459,5 @@ learn xs = Solve $ do
   learner <- ask
   return (learner xs)
   -}
+
+debug = liftIO . putStrLn
