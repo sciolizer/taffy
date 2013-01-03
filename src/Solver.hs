@@ -238,7 +238,6 @@ loop = do
     Just c -> do
       (satisfiable, as) <- liftIO $ runAssign (clauseResolve c)
       if not satisfiable then jumpback else do
-      -- todo: need to add a check in here to see if any of the affected
       assignedVars %= (reverse (map (\a -> AssignmentFrame (assignmentUndo a) [] False) as) ++)
       propagateEffects as
       loop
