@@ -350,11 +350,19 @@ newAvar vs = do
 
 -- | Like 'newAvar', but allows you to attach a custom name to the variable
 -- for debugging purposes.
-newNamedAvar name vs = do
-  making <- Init ask
-  ret <- liftIO $ Avar (M.toList vs) (readIORef making) <$> newVar name
-  tellAvar ret
-  return ret
+newNamedAvar name vs = z where
+  z = do
+    making <- Init ask
+    dummy <- liftNew . newIvar . Avar (M.toList vs) (readIORef making) =<< liftIO (newVar name)
+    vs' <- map snd . sortBy (compare `on` fst) <$> mapM (varCount dummy making) (M.toList vs)
+    ret <- liftIO $ Avar vs' (readIORef making) <$> newVar name
+    tellAvar ret
+    return ret
+  varCount dummy making (a, maker) = liftIO $ do
+    stubState <- newIORef (NewState 0 0 0)
+    ((), newVars, _newClauses) <- runNew (maker dummy) making stubState (return False)
+    cost <- product <$> mapM (\x -> length <$> uivarValues x) newVars
+    return (cost :: Int, (a, maker))
 
 -- | Creates a new instance variable with the given 'Avar' as its parent.
 newIvar :: (Ord a) => Avar constraint a -> New constraint (Ivar constraint a)
