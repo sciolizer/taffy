@@ -256,10 +256,9 @@ loop = do
             (x:xs) -> choose x xs
     Just c -> do
       (satisfiable, as) <- liftIO $ runAssign (clauseResolve c)
-      if not satisfiable then jumpback else do
       assignedVars %= (reverse (map (\a -> AssignmentFrame (assignmentUndo a) [] False) as) ++)
+      if not satisfiable then jumpback else do
       propagateEffects as
-      loop
 
 nop = return ()
 
@@ -284,12 +283,11 @@ choose x xs = do
   ((), [a]) <- liftIO $ runAssign x
   assignedVars %= (AssignmentFrame (assignmentUndo a) xs True :)
   propagateEffects [a]
-  loop
 
 -- propagateEffects :: [Assignment c] -> Solve c ()
 propagateEffects as = do
-  -- todo: jumpback if any of the assignments cause a variable's
-  -- candidate list to become empty
+  contradiction <- any null <$> liftIO (mapM (uivarValues . assignmentVar) as)
+  if contradiction then jumpback else do
   (newVars, newConstraints) <- runEffects as
   debug $ "generated " ++ show (length newVars) ++ " new vars and " ++ show (length newConstraints) ++ " new constraints"
   unassignedVars %= S.union (S.fromList newVars)
@@ -299,6 +297,7 @@ propagateEffects as = do
     cs1 <- getConstraints uivarVar
     cs2 <- getConstraints uivarAvar
     unrevisedClauses %= S.union cs1 . S.union cs2
+  loop
 
 runEffects :: [Assignment c] -> Solve c ([UntypedIvar c], [Clause c])
 runEffects as = do

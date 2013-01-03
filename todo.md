@@ -1,9 +1,3 @@
-Essential
-=========
-
-* Check for empty variables in propagateEffects (do not rely only on invocation of constraint)
-* Better value ordering (this is essential for avoiding infinite loops)
-
 Performance
 ===========
 
