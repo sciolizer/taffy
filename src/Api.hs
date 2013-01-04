@@ -19,6 +19,9 @@ class Level l where
   newVar :: Maybe String -> Values constraint a -> New l constraint (Var l constraint a)
   varName :: Var constraint l a -> String
   readVar :: Var l constraint a -> ReadAssign l constraint (S.Set a)
+  -- when you call set or shrink on an abstract var, you are
+  -- actually doing it on a particular instance var (you just don't
+  -- know which one).
   setVar :: Var l constraint a -> a -> ReadAssign l constraint ()
   shrinkVar :: Var l constraint a -> a -> ReadAssign l constraint ()
   newConstraint
