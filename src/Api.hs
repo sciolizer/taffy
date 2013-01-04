@@ -12,21 +12,23 @@ solve = undefined
 
 type Values constraint a = Map a (New Instance constraint ())
 
-data Var l constraint a
+data Var constraint a
 
 class Level l where
-  newVar :: Maybe String -> Values constraint a -> New l constraint (Var l constraint a)
-  varName :: Var constraint l a -> String
-  readVar :: Var l constraint a -> ReadAssign l constraint (S.Set a)
+  newVar :: Maybe String -> Values constraint a -> New l constraint (Var constraint a)
+  readVar :: Var constraint a -> ReadAssign l constraint (S.Set a)
   -- when you call set or shrink on an abstract var, you are
   -- actually doing it on a particular instance var (you just don't
   -- know which one).
-  setVar :: Var l constraint a -> a -> ReadAssign l constraint ()
-  shrinkVar :: Var l constraint a -> a -> ReadAssign l constraint ()
+  setVar :: Var constraint a -> a -> ReadAssign l constraint ()
+  shrinkVar :: Var constraint a -> a -> ReadAssign l constraint ()
   newConstraint
     :: constraint
     -> ReadAssign l constraint Bool
     -> New l constraint ()
+
+varName :: Var constraint a -> String
+varName = undefined
 
 data Abstract
 instance Level Abstract
@@ -46,7 +48,9 @@ make = undefined
 data Init constraint a
 data New l constraint a -- monad
 data ReadAssign l constraint a -- monad
+data Pattern constraint a -- not a monad
 
+{-
 newtype Tracker a = Tracker (IO a, IO a)
 
 instance Monad Tracker where
@@ -80,3 +84,4 @@ data SimulT t m a = Simul (m a, t m a) -- note different kind
 -- or is it (t m) a? Or is it 
 -- actually I think the not transformer version is fine
 
+-}
