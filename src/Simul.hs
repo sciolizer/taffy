@@ -4,6 +4,7 @@ module Simul where
 
 import Control.Applicative
 import Control.Monad.Writer
+import Data.Unique
 
 {-
 data Simul t a = Simul a (t a)
@@ -32,36 +33,93 @@ simul = undefined
 
 data Abstract
 data Instance
-data Var l c a where
-  InstanceVar :: Int -> Maybe (Var Abstract c a) -> Var Instance c a
-  AbstractVar :: Int -> Var Abstract c a
-
+data Var c a = AbstractVar Unique | InstanceVar Unique (Maybe Unique)
+data UntypedVar l c
 data Constraint c = Constraint c
-type Thing l c a = Either (New l c a) (Constraint c)
-type Inner l c a = WriterT [Thing l c a] IO a
+type Thing c = Either (UntypedVar Instance c) (Constraint c)
+type Inner c a = WriterT [Thing c] IO a
 data New l c a where
-  Abstract :: Inner Abstract c a -> New Instance c a -> New Abstract c a
-  Instance :: Inner Instance c a -> New Instance c a
+  Abstract :: Inner c a -> (a -> New Instance c a) -> New Abstract c a
+  Instance :: Inner c a -> New Instance c a
+
+unInstance :: New Instance c a -> Inner c a
+unInstance (Instance x) = x
 
 newAbstractConstraint :: c -> New Abstract c ()
-newAbstractConstraint c = undefined 
+newAbstractConstraint c = Abstract (tell [Right . Constraint $ c]) (\_ -> return ())
 
-newAbstractVar :: Int -> New Abstract c (Var Abstract c a)
-newAbstractVar = undefined
+newAbstractVar :: New Abstract c (Var c a)
+newAbstractVar = Abstract a i where
+  a = do
+    u <- liftIO newUnique
+    let var = AbstractVar u
+    -- tell [Left (untypeAbstract var)] -- don't care
+    return var
+  i a = do
+    u <- liftIO newUnique
+    let var = case a of
+                AbstractVar u' -> InstanceVar u (Just u')
+                InstanceVar _ _ -> error "internal bug"
+    Instance $ tell [Left (untypeInstance var)]
+    return var
 
-newInstanceConstraint :: Int -> New Instance c ()
-newInstanceConstraint = undefined
+untypeAbstract :: Var c a -> UntypedVar Abstract c
+untypeAbstract = undefined
 
-newInstanceVar :: Int -> New Instance c (Var Instance c a)
-newInstanceVar = undefined
+untypeInstance :: Var c a -> UntypedVar Instance c
+untypeInstance = undefined
 
-instance Monad (New Abstract c)
-instance Monad (New Instance c)
+newInstanceConstraint :: c -> New Instance c ()
+newInstanceConstraint = Instance . tell . (:[]) . Right . Constraint
+
+newInstanceVar :: New Instance c (Var c a)
+newInstanceVar = Instance $ do
+  u <- liftIO newUnique
+  let ret = InstanceVar u Nothing
+  tell [Left (untypeInstance ret)]
+  return ret
+
+instance Monad (New Abstract c) where
+  return x = Abstract (return x) (\_ -> return x)
+  (Abstract x y) >>= f = Abstract q (something x f y) where
+    q = innerFst . f =<< x
+    innerFst (Abstract z _) = z
+    -- innerSnd (Abstract _ y) = y
+instance MonadIO (New Abstract c)
+
+something :: Inner c a -> (a -> New Abstract c b) -> (a -> New Instance c a) -> (b -> New Instance c b)
+something x f y b = z where
+  z = do
+    a <- y =<< iton x
+    sndf f a b
+
+sndf :: (a -> New Abstract c b) -> a -> b -> New Instance c b
+sndf f x y =
+  case f x of
+    Abstract _ g -> g y
+
+iton :: Inner c a -> New Instance c a
+iton = Instance -- um... 
+  {- atoi . y =<< id . f' =<< atoi . g' =<< x where
+  atoi :: New Abstract c a -> New Instance c a
+  atoi = undefined
+  itoa :: New Instance c a -> New Abstract c a
+  itoa = undefined
+  g' :: a -> New Abstract c a
+  g' = undefined
+  f' :: a -> New Instance c a
+  f' = undefined
+  -}
+
+instance Monad (New Instance c) where
+  return x = Instance (return x)
+  (Instance x) >>= f = Instance (unInstance . f =<< x)
+instance MonadIO (New Instance c)
 
 runNewAbstract
   :: New Abstract c a
-  -> IO (a, New Instance c a, [Var Abstract c a], [Constraint c])
+  -> IO (a, New Instance c a, [UntypedVar Abstract c], [Constraint c])
 runNewAbstract = undefined
 
-runNewInstance :: New Instance c a -> IO (a, [Var Instance c a], [Constraint c])
+runNewInstance :: New Instance c a -> IO (a, [UntypedVar Instance c], [Constraint c])
 runNewInstance = undefined
