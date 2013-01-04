@@ -88,7 +88,7 @@ instance Eq (Var l c a) where (==) = (==) `on` varIdentity . _varCommon
 instance Ord (Var l c a) where compare = compare `on` varIdentity . _varCommon
 instance Show (Var l c a) where show = show . varIdentity . _varCommon
 
-data VarCommon l c a = VarCommon {
+data VarCommon c a = VarCommon {
   varIdentity :: NameAndIdentity,
 
   -- Ordered by cheapest choice, that is, if x comes before y,
@@ -98,7 +98,7 @@ data VarCommon l c a = VarCommon {
   -- don't actually make the problem larger)
   _values :: [(a, New Instance c ())],
 
-  varCommonState :: IORef (VarCommonState l c a) }
+  varCommonState :: IORef (VarCommonState c a) }
 
 -- can be used both for vars and constraints!
 data NameAndIdentity = NameAndIdentity {
@@ -109,7 +109,7 @@ instance Eq NameAndIdentity where (==) = (==) `on` identity
 instance Ord NameAndIdentity where compare = compare `on` identity
 instance Show NameAndIdentity where show = name
 
-data VarCommonState l c a = VarState {
+data VarCommonState c a = VarState {
   -- | A partial set of constraints constraining this var. Constraints not in this set
   -- but which constrain this var do not need to be revised when this var
   -- is assigned.
@@ -118,7 +118,7 @@ data VarCommonState l c a = VarState {
   -- third, since I can only make a deduction when there is one
   -- remaining unassigned variable.
   -- todo: actually make this a partial collection
-  _abstractConstraints :: M.Map (Constraint c) (ReadAssign l c Bool)
+  _abstractConstraints :: M.Map (Constraint c) (ReadAssign Abstract c Bool)
   }
 
 data VarDistinct l c a where
@@ -139,8 +139,10 @@ data AbstractVar c a = AbstractVar {
   _instances :: M.Map Instantiation (Var Instance c a) }
 
 data InstanceVar c a = InstanceVar {
-  _abstractVar :: Var Abstract c a,
+  _abstractVar :: Maybe (Var Abstract c a),
   _instanceVarState :: IORef (InstanceVarState c a) }
+
+instanceState = _instanceVarState . toInstanceVar
 
 data InstanceVarState c a = InstanceVarState {
   -- | If empty, problem is in conflict.
@@ -193,13 +195,18 @@ data NewContext l = NewContext {
   _newState :: IORef NewState }
 
 data MaybeInstantiation l where
-  JustInstantiation :: Instantiation -> MaybeInstantiation Abstract
-  NothingInstantiation :: MaybeInstantiation Instance
+  JustInstantiation :: Instantiation -> MaybeInstantiation Abstract -- although you want to create an instance value, you're doing it in the context of a (New Abstract) monad
+  NothingInstantiation :: MaybeInstantiation l -- both abstract and instance variables can be created without an instantiation
 
 data NewState = NewState {
   _nextAbstractId :: Int,
   _nextInstanceId :: Int,
   _nextConstraintId :: Int }
+
+newtype Pattern constraint a = Pattern (New Instance constraint a)
+  -- NOT a monad!
+
+newtype Init constraint a = Init (ReaderT Bool {- making or grouping -}
 
 -- | A monad for making assignments to variables. A constraint calls 'readVar'
 -- to determine if one of its variables can be deduced from the others,
@@ -363,9 +370,6 @@ class Level l where
     -> Values constraint a -- ^ candidate assignments to the variable
     -> New level constraint (Var level constraint a)
 
-  -- | Retrives the name of the variable.
-  varName :: Var level constraint a -> String
-
   -- | Returns the values which are not currently in direct violation
   -- of a constraint. A singleton value indicates that the variable
   -- has been assigned.
@@ -391,11 +395,32 @@ class Level l where
     id <- query nextConstraintId
     newNamedConstraint ("unnamed constraint " ++ show id) c watched resolve
 
--- | Like 'newConstraint', but allows you to attach a custom name for
--- debugging purposes.
-newNamedConstraint name c watched resolve =
-  tellConstraint (Constraint name c watched resolve)
+  -- | Like 'newConstraint', but allows you to attach a custom name for
+  -- debugging purposes.
+  newNamedConstraint name c watched resolve =
+    tellConstraint (Constraint name c watched resolve)
 
+newVarCommon
+  :: Maybe String
+  -> String
+  -> Simple Lens NewState Int
+  -> Values c a
+  -> New (VarCommon l c a)
+newVarCommon mbName prefix lens values = z where
+  z = do
+    name <- case mbName of
+              Nothing -> ("unnamed " ++ prefix ++ " var " ++) <$> varquery lens
+              Just x -> return x
+    identity <- newUnique
+    values' <- map snd . sortBy (compare `on` fst) <$> mapM varCount (M.toList vs)
+    state <- newIORef M.empty
+    return $ VarCommon (NameAndIdentity name identity) values' 
+        
+  varCount (a, maker) = liftIO $ do
+    stubState <- NewContext (return False) NothingInstantiation <$> newIORef (NewState 0 0 0)
+    ((), newVars, _newConstraints) <- runNew maker stubState
+    cost <- product <$> mapM (\x -> length <$> uvarValues x) newVars
+    return (cost :: Int, (a, maker))
 
 instance Level Abstract where
 {-
@@ -407,44 +432,36 @@ newAvar
     id <- liftNew $ query nextAvarId
     newNamedAvar ("unnamed avar " ++ show id) vs
 
-  newVar name vs = z where
+  newVar mbName values = z where
+   -- so... the odd there here, is that if we are in an instantiation context,
+   -- we need to create an instance var, instead of an abstract var (!),
+   -- and tell and return that
     z = do
-      making <- Init ask
-      dummy <- liftNew . newIvar . Avar (M.toList vs) (readIORef making) =<< liftIO (newVar name)
-      vs' <- map snd . sortBy (compare `on` fst) <$> mapM (varCount dummy making) (M.toList vs)
+      inst <- view instantiation
+      common <-
+        case inst of
+          NothingInstantiation -> newVarCommon mbName nextAbstractId "abstract" values
+          JustInstantiation i -> do
+            instanceVar <- newVar mbName values
+            return (over varDistinct setParent
+      common <- newVarCommon mbName nextAbstractId
       ret <- liftIO $ Avar vs' (readIORef making) <$> newVar name
-      tellAvar ret
+      tellAbstractvar ret
+      case inst of
+        NothingInstantiation -> 
       return ret
-    varCount dummy making (a, maker) = liftIO $ do
-      stubState <- newIORef (NewState 0 0 0)
-      ((), newVars, _newConstraints) <- runNew (maker dummy) making stubState (return False)
-      cost <- product <$> mapM (\x -> length <$> uivarValues x) newVars
-      return (cost :: Int, (a, maker))
-
 
 instance Level Instance where
-  -- | Creates a new instance variable with the given 'Avar' as its parent.
-  -- newVar :: (Ord a) => Avar constraint a -> New constraint (Ivar constraint a)
-  newVar av = do
-    id <- query nextIvarId
-    newNamedIvar ("unnamed ivar " ++ show id) av
-
-  -- | Like 'newIvar', but allows you to attach a custom name to the variable
-  -- for debugging purposes.
-  newVar name av = do
+  newVar mbName values = do
     ret <- liftIO $ do
-      state <- newIORef . flip IvarState M.empty . S.fromList . map fst . avarValues $ av
-      var <- Var name <$> newUnique <*> newIORef S.empty
-      return (Ivar av state var)
+      common <- newVarCommon mbName nextInstanceId "instance" values
+      state <- newIORef . InstanceVarState . M.keysSet $ values
+      return . Var common . VarInstance . InstanceVar Nothing $ state
     tellUntypedVar (untype ret)
     return ret
 
-  -- | Returns the name assigned to the given variable.
-  -- varName :: Ivar constraint a -> String
-  varName = varName . ivar
-
   -- readIvar :: Ivar constraint a -> IO (S.Set a)
-  readVar iv = _ivarCandidates <$> readIORef (ivarState iv)
+  readVar iv = _candidates <$> readIORef (instanceState iv)
 
   -- setVar :: (Ord a) => Ivar constraint a -> a -> Assign constraint ()
   setVar iv v = modifyIvar iv collapse where
@@ -457,18 +474,22 @@ instance Level Instance where
 modifyIvar :: Var Instance c a -> (S.Set a -> S.Set a) -> ReadAssign Instance c ()
 modifyIvar iv mod = do
   orig <- liftIO $ do
-    let ref = ivarState iv
-    candidates <- _ivarCandidates <$> readIORef ref
-    modifyIORef ref (over ivarCandidates mod)
+    let ref = instanceState iv
+    candidates <- _candidates <$> readIORef ref
+    modifyIORef ref (over candidates mod)
     return candidates
   dirtyVar iv orig
+
+-- | Retrieves the name of the variable.
+varName :: Var level constraint a -> String
+varName = name . _varCommon
 
 untype :: Var Instance c a -> UntypedVar c
 untype iv = UntypedVar ni setters where
   ni = varIdentity . _varCommon $ iv
   vi = toInstanceVar iv
   allValues = map head . _values . _varCommon $ iv
-  candidates = _candidates <$> readIORef (_instanceVarState iv)
+  candidates = _candidates <$> readIORef (instanceState iv)
   setters = do
     cs <- candidates
     return . filter (flip S.member cs) $ allValues
