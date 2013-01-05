@@ -81,13 +81,11 @@ newInstanceVar = Instance $ do
 
 instance Monad (New Abstract c) where
   return x = Abstract (return x) (\_ -> return x)
-  (Abstract x y) >>= f = Abstract q delayed where
-    q = innerFst . f =<< x
+  (Abstract x y) >>= f = Abstract fst snd where
+    fst = innerFst . f =<< x
     innerFst (Abstract z _) = z
-    delayed b = do
-      a <- y =<< Instance x
-      case f a of
-        Abstract _ g -> g b
+    snd b = ($ b) . innerSnd . f =<< y =<< Instance x
+    innerSnd (Abstract _ z) = z
 instance MonadIO (New Abstract c)
 
 instance Monad (New Instance c) where
