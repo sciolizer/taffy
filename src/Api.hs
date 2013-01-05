@@ -22,10 +22,11 @@ class Level l where
   -- know which one).
   setVar :: Var constraint a -> a -> ReadAssign l constraint ()
   shrinkVar :: Var constraint a -> a -> ReadAssign l constraint ()
-  newConstraint
-    :: constraint
-    -> ReadAssign l constraint Bool
-    -> New l constraint ()
+
+newConstraint
+  :: constraint
+  -> ReadAssign l constraint Bool
+  -> New l constraint ()
 
 varName :: Var constraint a -> String
 varName = undefined
@@ -36,10 +37,7 @@ instance Level Abstract
 data Instance
 instance Level Instance
 
-instantiate :: Pattern constraint a -> New Instance constraint a
-instantiate = undefined
-
-group :: New Abstract constraint a -> Init constraint (Pattern constraint a)
+group :: New Abstract constraint a -> Init constraint (New Instance constraint a)
 group = undefined
 
 make :: New Instance constraint a -> Init constraint a
@@ -48,7 +46,6 @@ make = undefined
 data Init constraint a
 data New l constraint a -- monad
 data ReadAssign l constraint a -- monad
-data Pattern constraint a -- not a monad
 
 {-
 newtype Tracker a = Tracker (IO a, IO a)
