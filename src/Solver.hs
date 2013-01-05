@@ -265,14 +265,65 @@ makeLenses ''AssignmentFrame
 makeLenses ''NewState
 makeLenses ''NewContext
 
+-- | Candidates values to be assigned to a variable
+-- are given as the keys of the map. The associated
+-- value is any side effect you want to happen when the variable is assigned.
+--
+-- Although any IO action can be put into the side effect, its main
+-- purpose is to create new variables and new constraints on those variables.
+-- For example, if your problem has, conceptually, a variable whose value
+-- is some unknown list, you can create a variable which represents the two
+-- possible constructors for the list: Cons and Nil. You can define the
+-- side effect for the Cons case as creating two new variables:
+-- one for the value in the head and the other for the constructor of the
+-- tail.
+--
+-- You should not rely on the invocation of the side effect as an indication
+-- that an instance variable has actually been assigned that value. The
+-- solver will sometimes do a dry run on the side effects of multiple values,
+-- so that it can give priority to assignments producing fewer new variables
+-- and constraints.
+type Values constraint a = M.Map a (New Instance constraint ())
+
+
+class Level l where
+  -- | Creates an new variable.
+  newVar
+    :: Maybe String -- ^ name of the variable, for debugging
+    -> Values constraint a -- ^ candidate assignments to the variable
+    -> New level constraint (Var constraint a)
+
+  -- | Returns the values which are not currently in direct violation
+  -- of a constraint. A singleton value indicates that the variable
+  -- has been assigned.
+  readVar :: Var constraint a -> ReadAssign level constraint (S.Set a)
+
+  -- | Removes all but the given value from the variable's set of
+  -- candidate values. If the given value is already in violation of
+  -- another constraint, the set of associated values will become empty,
+  -- and the solver will begin backjumping.
+  setVar :: Var constraint a -> a -> ReadAssign level constraint ()
+
+  -- | Removes the given value from the variable's set of candidate values.
+  -- If the set becomes empty as a result, the solver will begin backjumping.
+  shrinkVar :: Var constraint a -> a -> ReadAssign level constraint ()
+
+  {-
+  -- | Constrains a set of variables.
+  newConstraint
+    :: constraint
+    -> ReadAssign level constraint Bool -- ^ Constraint testing function. Should return False only when the constraint can no longer be satisfied. It should call 'setVar' or 'shrinkVar' when it can make a deduction.
+    -> New level constraint ()
+    -}
+
 instance Eq NameAndIdentity where (==) = (==) `on` identity
 instance Ord NameAndIdentity where compare = compare `on` identity
 instance Show NameAndIdentity where show = name
 
-mkName mbName lens s = do
+mkName mbName s = do
   name <- case mbName of
     Nothing -> do
-      id <- query lens
+      id <- nextId
       return $ "unnamed " ++ s ++ " " ++ show id
     Just x -> return x
   u <- liftIO newUnique
@@ -292,13 +343,13 @@ orderValues values = z where
 varCommon (VarAbstract av) = _abstractVarCommon av
 varCommon (VarInstance iv) = _instanceVarCommon iv
 
+-- | Retrieves the name of the variable.
+varName :: Var constraint a -> String
+varName = name . _varCommonIdentity . varCommon
+
 instance Eq (Var c a) where (==) = (==) `on` _varIdentity . varCommon
 instance Ord (Var c a) where compare = compare `on` _varIdentity . varCommon
 instance Show (Var c a) where show = show . _varIdentity . varCommon
-
--- | Retrieves the name of the variable.
-varName :: Var constraint a -> String
-varName = name . varCommon
 
 instance Eq (UntypedVar c) where (==) = (==) `on` untypedInstanceVarIdentity
 instance Ord (UntypedVar c) where compare = compare `on` untypedInstanceVarIdentity
@@ -317,6 +368,29 @@ instance (Eq c) => Eq (Constraint c) where (==) = (==) `on` constraintIdentity
 instance (Ord c) => Ord (Constraint c) where compare = compare `on` constraintIdentity
 instance Show (Constraint c) where show = show . constraintIdentity
 
+-- | Creates a new constraint.
+newConstraint
+  :: Maybe String -- ^ optional name
+  -> constraint -- ^ constraint
+  -> ReadAssign l constraint Bool -- ^ resolver
+  -> New l constraint ()
+newConstraint mbName c resolve = do
+  name <- mkName mbName "constraint"
+  let collectable = return False -- todo: make depend on values of variables
+  let c = Constraint name (Just c) (return False)
+  tell [c]
+  runDependencies c (bounded resolve)
+
+nextId :: (MonadReader NewContext (New l c) Num a) => Simple Lens NewState a -> New l c a
+nextId lens = do
+  ref <- asks _newState
+  liftIO $ do
+    ret <- view lens <$> readIORef ref
+    modifyIORef ref (over lens (+1))
+    return ret
+
+unNewInstance (NewInstance m) = m
+
 instance Monad (New Instance c) where
   return x = NewInstance (return x)
   (NewInstance x) >>= f = NewInstance (unNewInstance . f =<< x)
@@ -334,7 +408,8 @@ runNewInstance (NewInstance m) c = do
   (ret, (vars, cs)) <- evalRWST m c ()
   return (ret, vars, cs)
 
-unNewInstance (NewInstance m) = m
+tellUntypedInstanceVar :: UntypedInstanceVar c -> New Instance c ()
+tellUntypedInstanceVar var = NewInstance $ tell ([var], [])
 
 liftAbstract :: NewInner c a -> New Abstract c a
 liftAbstract m = NewAbstract m (\_ -> NewInstance m)
@@ -393,6 +468,35 @@ runReadAssignAbstract
   -> Instantiation
   -> IO (a, [Assignment c]
 runReadAssignAbstract (ReadAssign m) i = evalRWST m (JustInstantiation i) ()
+
+modifyInstanceVar :: Var c a -> (S.Set a -> S.Set a) -> ReadAssign Instance c ()
+modifyInstanceVar iv mod = do
+  orig <- liftIO $ do
+    let ref = _instanceVarState iv
+    candidates <- _candidates <$> readIORef ref
+    modifyIORef ref (over candidates mod)
+    return candidates
+  dirtyVar iv orig
+
+dirtyVar :: Var c a -> S.Set a -> ReadAssign Instance c ()
+dirtyVar iv orig = ReadAssign $ do
+  let ref = _instanceVarState iv
+  candidates <- liftIO $ _candidates <$> readIORef ref
+  when (candidates /= orig) $ do
+  let internalBug = error
+  let effect =
+        case S.toList candidates of
+          [v] -> do
+            case lookup v (_values . varCommon $ iv) of
+              Nothing -> internalBug "one of candidates is invalid"
+              Just x -> x
+          _ -> nop
+  tell [Assignment (untype iv) (effect iv) (modifyIORef ref (set candidates orig))]
+
+evalSolve :: Solve c a -> SolveContext c -> SolveState c -> IO a
+evalSolve (Solve m) context solveState = do
+  (ret, ()) <- evalRWST m context solveState
+  return ret
 
 -- Attempts to find a satisfying assignment.
 solve
@@ -496,69 +600,6 @@ pop set  = do
   set .= s'
   return (Just v)
 
--- | Candidates values to be assigned to a variable
--- are given as the keys of the map. The associated
--- value is any side effect you want to happen when the variable is assigned.
---
--- Although any IO action can be put into the side effect, its main
--- purpose is to create new variables and new constraints on those variables.
--- For example, if your problem has, conceptually, a variable whose value
--- is some unknown list, you can create a variable which represents the two
--- possible constructors for the list: Cons and Nil. You can define the
--- side effect for the Cons case as creating two new variables:
--- one for the value in the head and the other for the constructor of the
--- tail.
---
--- You should not rely on the invocation of the side effect as an indication
--- that an instance variable has actually been assigned that value. The
--- solver will sometimes do a dry run on the side effects of multiple values,
--- so that it can give priority to assignments producing fewer new variables
--- and constraints.
-type Values constraint a = M.Map a (New Instance constraint ())
-
-
-class Level l where
-  -- | Creates an new variable.
-  newVar
-    :: Maybe String -- ^ name of the variable, for debugging
-    -> Values constraint a -- ^ candidate assignments to the variable
-    -> New level constraint (Var constraint a)
-
-  -- | Returns the values which are not currently in direct violation
-  -- of a constraint. A singleton value indicates that the variable
-  -- has been assigned.
-  readVar :: Var constraint a -> ReadAssign level constraint (S.Set a)
-
-  -- | Removes all but the given value from the variable's set of
-  -- candidate values. If the given value is already in violation of
-  -- another constraint, the set of associated values will become empty,
-  -- and the solver will begin backjumping.
-  setVar :: Var constraint a -> a -> ReadAssign level constraint ()
-
-  -- | Removes the given value from the variable's set of candidate values.
-  -- If the set becomes empty as a result, the solver will begin backjumping.
-  shrinkVar :: Var constraint a -> a -> ReadAssign level constraint ()
-
-  -- | Constrains a set of variables.
-  newConstraint
-    :: constraint
-    -> ReadAssign level constraint Bool -- ^ Constraint testing function. Should return False only when the constraint can no longer be satisfied. It should call 'setVar' or 'shrinkVar' when it can make a deduction.
-    -> New level constraint ()
-
--- | Creates a new constraint.
-newConstraint
-  :: Maybe String -- ^ optional name
-  -> constraint -- ^ constraint
-  -> Dependencies l () -- ^ variables which constraint is dependent on
-  -> ReadAssign l constraint Bool -- ^ resolver
-  -> New l constraint ()
-newConstraint mbName c resolve = do
-  name <- mkName mbName nextConstraintId "constraint"
-  let collectable = return False -- todo: make depend on values of variables
-  let c = Constraint name (Just c) (return False)
-  tell [c]
-  runDependencies c (bounded resolve)
-
 instance Level Abstract where
   newVar mbName values = NewAbstract a i where
     a = do
@@ -571,7 +612,7 @@ instance Level Abstract where
       var <- case a of
                VarAbstract u' -> do
                  name <- do
-                   id <- query nextInstanceId
+                   id <- nextId
                    return . (("instance " ++ id ++ " of ") ++) . name . _varIdentity . _abstractVarCommon $ u'
                  identity <- newUnique
                  state <- newIORef . InstanceVarState . M.keysSet $ values
@@ -601,72 +642,11 @@ instance Level Instance where
   readVar iv = _candidates <$> readIORef (_instanceVarState iv)
 
   -- setVar :: (Ord a) => Ivar constraint a -> a -> Assign constraint ()
-  setVar iv v = modifyIvar iv collapse where
+  setVar iv v = modifyInstanceVar iv collapse where
     collapse cds | S.member v cds = S.singleton v
                  | otherwise = S.empty
 
   -- shrinkIvar :: (Ord a) => Ivar constraint a -> a -> Assign constraint ()
-  shrinkVar iv v = modifyIvar iv (S.delete v)
-
-modifyIvar :: InstanceVar c a -> (S.Set a -> S.Set a) -> ReadAssign Instance c ()
-modifyIvar iv mod = do
-  orig <- liftIO $ do
-    let ref = _instanceVarState iv
-    candidates <- _candidates <$> readIORef ref
-    modifyIORef ref (over candidates mod)
-    return candidates
-  dirtyVar iv orig
-
-tellUntypedVar :: (UntypedVar c) -> New c ()
-tellUntypedVar = NewInstance . tell . (:[]) . Left
-
-query :: (MonadReader NewContext (New l c) Num a) => Simple Lens NewState a -> New l c a
-query lens = do
-  ref <- asks _newState
-  liftIO $ do
-    ret <- view lens <$> readIORef ref
-    modifyIORef ref (over lens (+1))
-    return ret
-
--- | Instantiates all abstract variables created in the argument as
--- instance variables, and associates them with the constraints created
--- in the argument.
-instantiate :: Pattern constraint a -> New Instance constraint a
-instantiate (Pattern m) = do
-  i <- liftIO $ Instantiation <$> newUnique
-  -- yeah, need to write a MonadReader instance for New Instance, apparently
-  -- (shouldn't be too hard)
-  local (set instantiation (Just i)) m
-  -- rest of this can probably disappear
-  {-
-  ns <- view newState
-  liftIO $ do
-    let collectable = return False -- todo: make dependent on the variables
-    i <- Instantiation <$> newUnique
-    (ret, utvs, cs) <- runNew m (NewContext collectable (JustInstantiation i) ns)
-    New . tell . map Right $ cs
-    New . tell . map Left $ utvs
-    return ret
-    -}
-
-dirtyVar :: InstanceVar c a -> S.Set a -> ReadAssign Instance c ()
-dirtyVar iv orig = ReadAssign $ do
-  let ref = _instanceVarState iv
-  candidates <- liftIO $ _candidates <$> readIORef ref
-  when (candidates /= orig) $ do
-  let internalBug = error
-  let effect =
-        case S.toList candidates of
-          [v] -> do
-            case lookup v (_values . varCommon $ iv) of
-              Nothing -> internalBug "one of candidates is invalid"
-              Just x -> x
-          _ -> nop
-  tell [Assignment (untype iv) (effect iv) (modifyIORef ref (set candidates orig))]
-
-evalSolve :: Solve c a -> SolveContext c -> SolveState c -> IO a
-evalSolve (Solve m) context solveState = do
-  (ret, ()) <- evalRWST m context solveState
-  return ret
+  shrinkVar iv v = modifyInstanceVar iv (S.delete v)
 
 debug = liftIO . putStrLn
