@@ -84,7 +84,6 @@ instance Monad (New Abstract c) where
   (Abstract x y) >>= f = Abstract q (something x f y) where
     q = innerFst . f =<< x
     innerFst (Abstract z _) = z
-    -- innerSnd (Abstract _ y) = y
 instance MonadIO (New Abstract c)
 
 something :: Inner c a -> (a -> New Abstract c b) -> (a -> New Instance c a) -> (b -> New Instance c b)
@@ -99,17 +98,7 @@ sndf f x y =
     Abstract _ g -> g y
 
 iton :: Inner c a -> New Instance c a
-iton = Instance -- um... 
-  {- atoi . y =<< id . f' =<< atoi . g' =<< x where
-  atoi :: New Abstract c a -> New Instance c a
-  atoi = undefined
-  itoa :: New Instance c a -> New Abstract c a
-  itoa = undefined
-  g' :: a -> New Abstract c a
-  g' = undefined
-  f' :: a -> New Instance c a
-  f' = undefined
-  -}
+iton = Instance
 
 instance Monad (New Instance c) where
   return x = Instance (return x)
@@ -118,8 +107,14 @@ instance MonadIO (New Instance c)
 
 runNewAbstract
   :: New Abstract c a
-  -> IO (a, New Instance c a, [UntypedVar Abstract c], [Constraint c])
-runNewAbstract = undefined
+  -> IO (a, New Instance c a, [Thing c])
+runNewAbstract (Abstract fst snd) = do
+  (a, things) <- runWriterT fst
+  return (a, snd a, things)
 
-runNewInstance :: New Instance c a -> IO (a, [UntypedVar Instance c], [Constraint c])
-runNewInstance = undefined
+runNewInstance :: New Instance c a -> IO (a, [Thing c])
+runNewInstance (Instance m) = runWriterT m
+
+-- the Thing type can be extended to track both instance constraints
+-- and abstract constraints. Also abstract vars
+-- in case that ever becomes necessary
