@@ -93,11 +93,11 @@ data AbstractVar c a = AbstractVar {
   _abstractVarCommon :: VarCommon c a }
 
 data InstanceVar c a = InstanceVar {
-  _instanceVarAbstractVar :: Maybe (AbstractVar c a),
+  _instanceVarAbstractVar :: Maybe (AbstractVar c a, Instantiation),
   _instanceVarState :: IORef (InstanceVarState c a),
   _instanceVarCommon :: VarCommon c a }
 
-type Constraints l c = M.Map (Constraint c) (ReadAssign l c Bool)
+type Constraints l c = M.Map (Constraint l c) (ReadAssign l c Bool)
 
 data AbstractVarState c a = AbstractVarState {
   _instances :: M.Map Instantiation (InstanceVar c a),
@@ -108,7 +108,7 @@ data AbstractVarState c a = AbstractVarState {
   -- constraint in two of the vars, but I do not need to put it in the
   -- third, since I can only make a deduction when there is one
   -- remaining unassigned variable.
-  -- todo: actually make this a partial collection
+  -- The collection is partial if the client's constraints exit early.
   _abstractConstraints :: Constraints Abstract c }
 
 data InstanceVarState c a = InstanceVarState {
@@ -169,7 +169,6 @@ newtype Instantiation = Instantiation { unInstantiation :: Unique }
 
 -- | Problem definition monad.
 newtype Init constraint a = Init (RWST (IORef Int) [Constraint Abstract constraint] () (New Instance constraint) a)
-  deriving (Applicative, Functor, Monad, MonadIO)
 {-
 instance Monad (Init constraint) where
   return x = Init (return x)
@@ -228,28 +227,19 @@ data Abstract
 data Instance
 
 newtype Solve c a = Solve (RWST (SolveContext c) () (SolveState c) IO a)
-  deriving (Applicative, Functor, Monad, MonadIO, MonadReader, MonadState)
+  deriving (Applicative, Functor, Monad, MonadIO)
 
 data SolveContext c = SolveContext {
   _solveNext :: IORef Int,
-  _learner :: [c] -> IO [c] }
+  _solveLearner :: [c] -> IO [c] }
 
 data SolveState c = SolveState {
   _assignedVars :: [AssignmentFrame c], -- head is most recently assigned
-  _unassignedVars :: S.Set (UntypedVar c),
+  _unassignedVars :: S.Set (UntypedInstanceVar c),
   _unrevisedInstanceConstraints :: S.Set (ReadAssign Instance c Bool),
-  _unrevisedAbstractConstraints :: S.Set (ReadAssign Abstract c Bool),
-  _learntConstraints :: S.Set (Constraint c) }
-
-{-
-instance MonadReader (SolveContext c) (Solve c) where
-  -- ask :: Solve c (SolveContext c)
-  ask = Solve ask
-  -- local :: (SolveContext c -> SolveContext c) -> Solve c a -> Solve c a
-  local f (Solve m) = Solve (local f m)
-
-instance MonadState (SolveState c) (Solve c) where state = Solve . state
--}
+  _unrevisedAbstractConstraints :: S.Set (ReadAssign Abstract c Bool, Instantiation),
+  _learntInstanceConstraints :: S.Set (Constraint Instance c),
+  _learntAbstractConstraints :: S.Set (Constraint Abstract c) }
 
 data AssignmentFrame c = AssignmentFrame {
   _frameUndo :: IO (),
@@ -262,7 +252,6 @@ makeLenses ''AbstractVarState
 makeLenses ''SolveState
 makeLenses ''SolveContext
 makeLenses ''AssignmentFrame
-makeLenses ''NewState
 makeLenses ''NewContext
 
 -- | Candidates values to be assigned to a variable
@@ -320,6 +309,7 @@ instance Eq NameAndIdentity where (==) = (==) `on` identity
 instance Ord NameAndIdentity where compare = compare `on` identity
 instance Show NameAndIdentity where show = name
 
+mkName :: (MonadReader (IORef Int) m) => Maybe String -> String -> m NameAndIdentity
 mkName mbName s = do
   name <- case mbName of
     Nothing -> do
@@ -370,6 +360,7 @@ instance Show (Constraint c) where show = show . constraintIdentity
 
 -- | Creates a new constraint.
 newConstraint
+  -- todo: put type class constraints here indicating New l c is a monad
   :: Maybe String -- ^ optional name
   -> constraint -- ^ constraint
   -> ReadAssign l constraint Bool -- ^ resolver
@@ -438,6 +429,10 @@ runNewAbstract (NewAbstract fst snd) c = do
         local (set newContextInstantiation (Just i)) (snd ret)
   return (ret, instMaker, constraints)
 
+deriving instance Applicative (Init c)
+deriving instance Functor (Init c)
+deriving instance Monad (Init c)
+deriving instance MonadIO (Init c)
 runInit
   :: Init c a
   -> IO (a, IORef Int, [UntypedInstanceVar c], [Constraint Instance c], [Constraint Abstract c])
@@ -466,7 +461,7 @@ runReadAssignInstance (ReadAssign m) = evalRWST m NothingInstantiation ()
 runReadAssignAbstract
   :: ReadAssign Abstract c a
   -> Instantiation
-  -> IO (a, [Assignment c]
+  -> IO (a, [Assignment c])
 runReadAssignAbstract (ReadAssign m) i = evalRWST m (JustInstantiation i) ()
 
 modifyInstanceVar :: Var c a -> (S.Set a -> S.Set a) -> ReadAssign Instance c ()
@@ -492,6 +487,14 @@ dirtyVar iv orig = ReadAssign $ do
               Just x -> x
           _ -> nop
   tell [Assignment (untype iv) (effect iv) (modifyIORef ref (set candidates orig))]
+
+instance MonadReader (SolveContext c) (Solve c) where
+  -- ask :: Solve c (SolveContext c)
+  ask = Solve ask
+  -- local :: (SolveContext c -> SolveContext c) -> Solve c a -> Solve c a
+  local f (Solve m) = Solve (local f m)
+
+instance MonadState (SolveState c) (Solve c) where state = Solve . state
 
 evalSolve :: Solve c a -> SolveContext c -> SolveState c -> IO a
 evalSolve (Solve m) context solveState = do
@@ -526,7 +529,7 @@ loop = do
       case mbv of
         Nothing -> return True
         Just v -> do
-          vals <- liftIO $ uivarValues v
+          vals <- liftIO $ untypedInstanceVarValues v
           debug $ "has " ++ show (length vals) ++ " vals"
           case vals of
             [] -> do
@@ -566,29 +569,36 @@ choose x xs = do
   assignedVars %= (AssignmentFrame (assignmentUndo a) xs True :)
   propagateEffects [a]
 
--- propagateEffects :: [Assignment c] -> Solve c ()
+propagateEffects :: [Assignment c] -> Solve c Bool
 propagateEffects as = do
-  contradiction <- any null <$> liftIO (mapM (uivarValues . assignmentVar) as)
+  contradiction <- any null <$> liftIO (mapM (untypedInstanceVarValues . assignmentVar) as)
   if contradiction then jumpback else do
   (newVars, newConstraints) <- runEffects as
   debug $ "generated " ++ show (length newVars) ++ " new vars and " ++ show (length newConstraints) ++ " new constraints"
   unassignedVars %= S.union (S.fromList newVars)
-  unrevisedConstraints %= S.union (S.fromList newConstraints)
+  unrevisedInstanceConstraints %= S.union (S.fromList newConstraints)
   forM_ as $ \a -> do
     let getConstraints f = map (a,) <$> (liftIO $ readIORef (varConstraints . f . assignmentVar $ a))
     cs1 <- getConstraints uivarVar
     cs2 <- getConstraints uivarAvar
+    cs1 <- map (a,) <$> (liftIO $ 
+    VarInstance x ->
+      fst = _instanceConstraints . readIORef (_instanceVarState iv
+      include <$> case _instanceVarAbstractVar x of
+                    Nothing -> _instanceConstraints
+                    Just (av, i) -> 
+                    _instanceVarCommon
     unrevisedConstraints %= S.union (map (a,) cs1) . S.union cs2
   loop
 
-runEffects :: [Assignment c] -> Solve c ([UntypedVar c], [Constraint c])
+runEffects :: [Assignment c] -> Solve c ([UntypedInstanceVar c], [Constraint c])
 runEffects as = do
-  ns <- view solveNewState
-  making <- view monadCheckRef
+  nextIdRef <- view solveNext
   liftIO $ do
     -- todo: change collectable to be dependent on whether
     -- the instigating variable has multiple candidate values.
-    out <- mapM ((\x -> runNew x making ns (return False)) . assignmentEffect) as
+    let context = NewContext (return False) Nothing nextIdRef
+    out <- mapM ((flip runNewInstance context) . assignmentEffect) as
     return . (\(vss,css) -> (concat vss, concat css)) . unzip . map (\((),v,c) -> (v,c)) $ out
 
 -- For some reason ghc can't infer this type.
@@ -603,7 +613,7 @@ pop set  = do
 instance Level Abstract where
   newVar mbName values = NewAbstract a i where
     a = do
-      name <- mkName mbName nextAbstractId "abstract var"
+      name <- mkName mbName "abstract var"
       vals <- orderValues values
       state <- liftIO . newIORef $ AbstractVarState M.empty M.empty
       -- tellAbstractvar ret -- don't think this is actually necessary
@@ -613,11 +623,11 @@ instance Level Abstract where
                VarAbstract u' -> do
                  name <- do
                    id <- nextId
-                   return . (("instance " ++ id ++ " of ") ++) . name . _varIdentity . _abstractVarCommon $ u'
+                   return . (("instance " ++ id ++ " of ") ++) . name . _varCommonIdentity . _abstractVarCommon $ u'
                  identity <- newUnique
                  state <- newIORef . InstanceVarState . M.keysSet $ values
-                 let ret = InstanceVar (Just u') state (set varIdentity (NameAndIdentity name identity) (_abstractVarCommon a))
-                 mbInst <- view instantiation
+                 let ret = InstanceVar (Just u') state (set varCommonIdentity (NameAndIdentity name identity) (_abstractVarCommon a))
+                 mbInst <- ask
                  case mbInst of
                    Nothing -> return ()
                    Just inst -> modifyIORef u' . over instances . M.insert inst $ ret
@@ -631,11 +641,11 @@ internalBug = error
 instance Level Instance where
   newVar mbName values = do
     ret <- liftIO $ do
-      name <- mkName mbName nextInstanceId "instance var"
+      name <- mkName mbName "instance var"
       vals <- orderValues values
       state <- newIORef . InstanceVarState . M.keysSet $ values
       return . VarInstance $ InstanceVar Nothing state (VarCommon name vals)
-    tellUntypedVar (untype ret)
+    tellUntypedInstanceVar (untype ret)
     return ret
 
   -- readIvar :: Ivar constraint a -> IO (S.Set a)
