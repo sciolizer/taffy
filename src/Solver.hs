@@ -1,8 +1,11 @@
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 module Solver (
@@ -61,7 +64,7 @@ import Control.Monad.Writer
 import Data.Either
 import Data.Function
 import Data.IORef
-import Data.List
+import Data.List hiding (group)
 import qualified Data.Map as M
 import Data.Maybe
 import qualified Data.Set as S
@@ -169,18 +172,6 @@ newtype Instantiation = Instantiation { unInstantiation :: Unique }
 
 -- | Problem definition monad.
 newtype Init constraint a = Init (RWST (IORef Int) [Constraint Abstract constraint] () (New Instance constraint) a)
-{-
-instance Monad (Init constraint) where
-  return x = Init (return x)
-  (Init x) >>= f = Init (unInit . f =<< x)
-instance MonadIO (Init constraint) where
-  liftIO = Init . liftIO
-instance Functor (Init constraint) where
-  fmap f (Init x) = Init (f x)
-instance Applicative (Init constraint) where
-  pure x = Init (pure x)
-  (Init f) <*> (Init x) = Init (f <*> x)
-  -}
 
 -- | A monad for making assignments to variables. A constraint calls 'readVar'
 -- to determine if one of its variables can be deduced from the others,
@@ -275,7 +266,7 @@ makeLenses ''NewContext
 type Values constraint a = M.Map a (New Instance constraint ())
 
 
-class Level l where
+class Level level where
   -- | Creates an new variable.
   newVar
     :: Maybe String -- ^ name of the variable, for debugging
@@ -291,11 +282,11 @@ class Level l where
   -- candidate values. If the given value is already in violation of
   -- another constraint, the set of associated values will become empty,
   -- and the solver will begin backjumping.
-  setVar :: Var constraint a -> a -> ReadAssign level constraint ()
+  setVar :: (Ord a) => Var constraint a -> a -> ReadAssign level constraint ()
 
   -- | Removes the given value from the variable's set of candidate values.
   -- If the set becomes empty as a result, the solver will begin backjumping.
-  shrinkVar :: Var constraint a -> a -> ReadAssign level constraint ()
+  shrinkVar :: (Ord a) => Var constraint a -> a -> ReadAssign level constraint ()
 
   {-
   -- | Constrains a set of variables.
@@ -310,7 +301,7 @@ instance Ord NameAndIdentity where compare = compare `on` identity
 instance Show NameAndIdentity where show = name
 
 mkName :: (MonadReader (IORef Int) m) => Maybe String -> String -> m NameAndIdentity
-mkName mbName s = do
+mkName mbName s = undefined {- do
   name <- case mbName of
     Nothing -> do
       id <- nextId
@@ -318,17 +309,19 @@ mkName mbName s = do
     Just x -> return x
   u <- liftIO newUnique
   return (NameAndIdentity name u)
+  -}
 
 orderValues
   :: Values c a
   -> IO [(a, New Instance c ())]
-orderValues values = z where
+orderValues values = undefined {- z where
   z = map snd . sortBy (compare `on` fst) <$> mapM varCount (M.toList values)
   varCount (a, maker) = do
     stubState <- NewContext (return False) Nothing <$> newIORef (NewState 0 0 0)
     ((), newVars, _newConstraints) <- runNewInstance maker stubState
     cost <- product <$> mapM (\x -> length <$> uvarValues x) newVars
     return (cost :: Int, (a, maker))
+    -}
 
 varCommon (VarAbstract av) = _abstractVarCommon av
 varCommon (VarInstance iv) = _instanceVarCommon iv
@@ -337,26 +330,27 @@ varCommon (VarInstance iv) = _instanceVarCommon iv
 varName :: Var constraint a -> String
 varName = name . _varCommonIdentity . varCommon
 
-instance Eq (Var c a) where (==) = (==) `on` _varIdentity . varCommon
-instance Ord (Var c a) where compare = compare `on` _varIdentity . varCommon
-instance Show (Var c a) where show = show . _varIdentity . varCommon
+instance Eq (Var c a) where (==) = (==) `on` _varCommonIdentity . varCommon
+instance Ord (Var c a) where compare = compare `on` _varCommonIdentity . varCommon
+instance Show (Var c a) where show = show . _varCommonIdentity . varCommon
 
-instance Eq (UntypedVar c) where (==) = (==) `on` untypedInstanceVarIdentity
-instance Ord (UntypedVar c) where compare = compare `on` untypedInstanceVarIdentity
-instance Show (UntypedVar c) where show = show . untypedInstanceVarIdentity
+instance Eq (UntypedInstanceVar c) where (==) = (==) `on` untypedInstanceVarIdentity
+instance Ord (UntypedInstanceVar c) where compare = compare `on` untypedInstanceVarIdentity
+instance Show (UntypedInstanceVar c) where show = show . untypedInstanceVarIdentity
 
 untype :: InstanceVar c a -> UntypedInstanceVar c
-untype iv = UntypedVar ni setters where
+untype iv = undefined {- UntypedVar ni setters where
   ni = _varIdentity . varCommon $ iv
   allValues = map head . _values . varCommon $ iv
   candidates = _candidates <$> readIORef (_instanceVarState iv)
   setters = do
     cs <- candidates
     return . filter (flip S.member cs) $ allValues
+    -}
 
-instance (Eq c) => Eq (Constraint c) where (==) = (==) `on` constraintIdentity
-instance (Ord c) => Ord (Constraint c) where compare = compare `on` constraintIdentity
-instance Show (Constraint c) where show = show . constraintIdentity
+instance (Eq c) => Eq (Constraint l c) where (==) = (==) `on` constraintIdentity
+instance (Ord c) => Ord (Constraint l c) where compare = compare `on` constraintIdentity
+instance Show (Constraint l c) where show = show . constraintIdentity
 
 -- | Creates a new constraint.
 newConstraint
@@ -365,23 +359,27 @@ newConstraint
   -> constraint -- ^ constraint
   -> ReadAssign l constraint Bool -- ^ resolver
   -> New l constraint ()
-newConstraint mbName c resolve = do
+newConstraint mbName c resolve = undefined {- do
   name <- mkName mbName "constraint"
   let collectable = return False -- todo: make depend on values of variables
   let c = Constraint name (Just c) (return False)
   tell [c]
   runDependencies c (bounded resolve)
+  -}
 
-nextId :: (MonadReader NewContext (New l c) Num a) => Simple Lens NewState a -> New l c a
-nextId lens = do
+nextId :: (MonadReader NewContext (New l c), Num a) => New l c a
+nextId = undefined {- do
   ref <- asks _newState
   liftIO $ do
     ret <- view lens <$> readIORef ref
     modifyIORef ref (over lens (+1))
     return ret
+    -}
 
 unNewInstance (NewInstance m) = m
 
+instance Functor (New Instance c)
+instance Applicative (New Instance c)
 instance Monad (New Instance c) where
   return x = NewInstance (return x)
   (NewInstance x) >>= f = NewInstance (unNewInstance . f =<< x)
@@ -402,57 +400,64 @@ runNewInstance (NewInstance m) c = do
 tellUntypedInstanceVar :: UntypedInstanceVar c -> New Instance c ()
 tellUntypedInstanceVar var = NewInstance $ tell ([var], [])
 
-liftAbstract :: NewInner c a -> New Abstract c a
-liftAbstract m = NewAbstract m (\_ -> NewInstance m)
+liftAbstract :: NewInstance c a -> New Abstract c a
+liftAbstract m = undefined -- NewAbstract m (\_ -> NewInstance m)
 
+instance Functor (New Abstract c)
+instance Applicative (New Abstract c)
 instance Monad (New Abstract c) where
   return x = liftAbstract (return x)
-  (NewAbstract x y) >>= f = NewAbstract fst snd where
+  (NewAbstract x y) >>= f = undefined {- NewAbstract fst snd where
     fst = innerFst . f =<< x
     innerFst (NewAbstract z _) = z
     snd b = ($ b) . innerSnd . f =<< y =<< NewInstance x
     innerSnd (NewAbstract _ z) = z
+    -}
 instance MonadIO (New Abstract c) where
   liftIO = liftAbstract . liftIO
 instance MonadReader NewContext (New Abstract c) where
-  ask = liftAbstract . ask
-  local f (NewAbstract m n) = NewAbstract (local f m) (\_ -> local f n)
+  ask = undefined -- ask = liftAbstract . ask
+  local = undefined -- local f (NewAbstract m n) = NewAbstract (local f m) (\_ -> local f n)
 
 runNewAbstract
   :: New Abstract c a
   -> NewContext
   -> IO (a, New Instance c a, [Constraint Abstract c])
-runNewAbstract (NewAbstract fst snd) c = do
+runNewAbstract (NewAbstract fst snd) c = undefined {- do
   (ret, constraints) <- evalRWST fst c ()
   let instMaker = do
         i <- Instantiation <$> newUnique
         local (set newContextInstantiation (Just i)) (snd ret)
   return (ret, instMaker, constraints)
+  -}
 
 deriving instance Applicative (Init c)
 deriving instance Functor (Init c)
 deriving instance Monad (Init c)
 deriving instance MonadIO (Init c)
+deriving instance MonadWriter [Constraint Abstract c] (Init c)
 runInit
   :: Init c a
   -> IO (a, IORef Int, [UntypedInstanceVar c], [Constraint Instance c], [Constraint Abstract c])
-runInit (Init m) = do
+runInit (Init m) = undefined {- do
   n <- newIORef 0
   let context = NewContext (return False) Nothing n
   ((a, cas), vars, cis) <- runNewInstance (evalRWST m context ()) context
   return (a, n, vars, cis, cas)
+  -}
 
 -- | Groups a collection of abstract vars and constraints into
 -- one, so that the pattern can be instantiated multiple times.
-group :: New Abstract constraint a -> Init (New Instance constraint a)
-group m = do
+group :: New Abstract constraint a -> Init constraint (New Instance constraint a)
+group m = undefined {- do
   ref <- ask
   (_, ret, cs) <- liftIO $ runNewAbstract m ref
   tell ([], [], cs)
   return ret
+  -}
 
 make :: New Instance constraint a -> Init constraint a
-make = lift
+make = undefined -- lift
 
 -- runAssign :: Assign c a -> IO (a, [Assignment])
 runReadAssignInstance :: ReadAssign Instance c a -> IO (a, [Assignment c])
@@ -465,16 +470,17 @@ runReadAssignAbstract
 runReadAssignAbstract (ReadAssign m) i = evalRWST m (JustInstantiation i) ()
 
 modifyInstanceVar :: Var c a -> (S.Set a -> S.Set a) -> ReadAssign Instance c ()
-modifyInstanceVar iv mod = do
+modifyInstanceVar iv mod = undefined {- do
   orig <- liftIO $ do
     let ref = _instanceVarState iv
     candidates <- _candidates <$> readIORef ref
     modifyIORef ref (over candidates mod)
     return candidates
   dirtyVar iv orig
+  -}
 
 dirtyVar :: Var c a -> S.Set a -> ReadAssign Instance c ()
-dirtyVar iv orig = ReadAssign $ do
+dirtyVar iv orig = undefined {- ReadAssign $ do
   let ref = _instanceVarState iv
   candidates <- liftIO $ _candidates <$> readIORef ref
   when (candidates /= orig) $ do
@@ -485,8 +491,9 @@ dirtyVar iv orig = ReadAssign $ do
             case lookup v (_values . varCommon $ iv) of
               Nothing -> internalBug "one of candidates is invalid"
               Just x -> x
-          _ -> nop
+          _ -> return ()
   tell [Assignment (untype iv) (effect iv) (modifyIORef ref (set candidates orig))]
+  -}
 
 instance MonadReader (SolveContext c) (Solve c) where
   -- ask :: Solve c (SolveContext c)
@@ -504,22 +511,24 @@ evalSolve (Solve m) context solveState = do
 -- Attempts to find a satisfying assignment.
 solve
   :: (Ord constraint)
-  => ([constraint] -> New constraint ()) -- ^ Constraint learning function, for conflict-directed constraint learning. The head of the given list is the constraint which produced a contradiction.
+  => ([constraint] -> New Instance constraint ()) -- ^ Constraint learning function, for conflict-directed constraint learning. The head of the given list is the constraint which produced a contradiction.
   -> Init constraint a -- ^ Problem definition. You should return the 'Ivar's that you plan on reading from (using 'readIvar') when a solution is found.
   -> IO (Bool, a) -- ^ 'False' iff no solution exists. Values returned from 'readIvar' after solve completes are 'undefined' if 'False' is returned; otherwise they will be singleton sets containing the satisfying assignment.
-solve learner definition = do
+solve learner definition = undefined {- do
   (ret, check, newstate, _avars, ivars, constraints) <- runInit definition
   mapM_ attach constraints
   let ss = SolveState [] (S.fromList ivars) (S.fromList constraints) S.empty
   completed <- evalSolve loop (SolveContext newstate learner check) ss
   return (completed, ret)
+  -}
 
-attach :: (Ord c) => Constraint c -> IO ()
-attach c = mapM_ insert . S.toList . constraintVars $ c where
+attach :: (Ord c) => Constraint l c -> IO ()
+attach c = undefined {- mapM_ insert . S.toList . constraintVars $ c where
   insert v = modifyIORef (varConstraints v) (S.insert c)
+  -}
 
 -- loop :: Solve c Bool
-loop = do
+loop = undefined {- do
   mbc <- pop unrevisedConstraints
   debug $ "popped constraint: " ++ show mbc
   case mbc of
@@ -544,8 +553,6 @@ loop = do
       assignedVars %= (reverse (map (\a -> AssignmentFrame (assignmentUndo a) [] False) as) ++)
       if not satisfiable then jumpback else do
       propagateEffects as
-
-nop = return ()
 
 jumpback :: (Ord c) => Solve c Bool
 jumpback = do
@@ -609,9 +616,10 @@ pop set  = do
   let (v, s') = S.deleteFindMin s -- todo: better variable ordering
   set .= s'
   return (Just v)
+  -}
 
 instance Level Abstract where
-  newVar mbName values = NewAbstract a i where
+  newVar mbName values = undefined {- NewAbstract undefined {- a -} undefined {- i -} where
     a = do
       name <- mkName mbName "abstract var"
       vals <- orderValues values
@@ -624,32 +632,33 @@ instance Level Abstract where
                  name <- do
                    id <- nextId
                    return . (("instance " ++ id ++ " of ") ++) . name . _varCommonIdentity . _abstractVarCommon $ u'
-                 identity <- newUnique
-                 state <- newIORef . InstanceVarState . M.keysSet $ values
-                 let ret = InstanceVar (Just u') state (set varCommonIdentity (NameAndIdentity name identity) (_abstractVarCommon a))
+                 identity <- liftIO newUnique
+                 state <- liftIO . newIORef . InstanceVarState . M.keysSet $ values
+                 let ret = InstanceVar (Just undefined {- u' -}) undefined {- state -} (set varCommonIdentity (NameAndIdentity name identity) (_abstractVarCommon undefined)) -- a))
                  mbInst <- ask
-                 case mbInst of
+                 liftIO $ case mbInst of
                    Nothing -> return ()
-                   Just inst -> modifyIORef u' . over instances . M.insert inst $ ret
+                   Just inst -> modifyIORef undefined {- u' -} . over instances . M.insert inst $ ret
                  return ret
                VarInstance _ -> internalBug "tried to instantiate an instance variable"
       NewInstance $ tell [Left (untype var)]
       return (VarInstance var)
+      -}
 
 internalBug = error
 
 instance Level Instance where
   newVar mbName values = do
+    name <- undefined -- mkName mbName "instance var"
     ret <- liftIO $ do
-      name <- mkName mbName "instance var"
       vals <- orderValues values
       state <- newIORef . InstanceVarState . M.keysSet $ values
-      return . VarInstance $ InstanceVar Nothing state (VarCommon name vals)
-    tellUntypedInstanceVar (untype ret)
+      return . VarInstance $ InstanceVar Nothing undefined {- state -} (VarCommon name vals)
+    tellUntypedInstanceVar (untype undefined) -- ret)
     return ret
 
   -- readIvar :: Ivar constraint a -> IO (S.Set a)
-  readVar iv = _candidates <$> readIORef (_instanceVarState iv)
+  readVar iv = undefined -- _candidates <$> liftIO (readIORef (_instanceVarState iv))
 
   -- setVar :: (Ord a) => Ivar constraint a -> a -> Assign constraint ()
   setVar iv v = modifyInstanceVar iv collapse where
