@@ -157,8 +157,8 @@ type NewInstance c =
 -- | A monad for creating variables and constraints.
 data New level constraint a where
   NewAbstract
-    :: RWST (IORef Int) [Constraint Abstract c] () IO a
-    -> (a -> NewInstance constraint a)
+    :: RWST (IORef Int) [Constraint Abstract constraint] () IO a
+    -> (a -> ReaderT Something (NewInstance constraint) a)
     -> New Abstract constraint a
   NewInstance :: NewInstance constraint a -> New Instance constraint a
 
@@ -407,12 +407,17 @@ instance Functor (New Abstract c)
 instance Applicative (New Abstract c)
 instance Monad (New Abstract c) where
   return x = liftAbstract (return x)
-  (NewAbstract x y) >>= f = undefined {- NewAbstract fst snd where
+  (NewAbstract x y) >>= f = NewAbstract fst snd where
     fst = innerFst . f =<< x
     innerFst (NewAbstract z _) = z
-    snd b = ($ b) . innerSnd . f =<< y =<< NewInstance x
+    -- the problem is that I changed NewAbstract to work with a different r and w
+    -- (IORef Int and [Constraint Abstract c]) from the one used in NewInstance
+    -- (NewContext and ([UntypedInstanceVar c], [Constraint Instance c]))
+    snd b = blah -- ($ b) . innerSnd . f =<< y =<< NewInstance x
     innerSnd (NewAbstract _ z) = z
-    -}
+
+blah = undefined
+
 instance MonadIO (New Abstract c) where
   liftIO = liftAbstract . liftIO
 instance MonadReader NewContext (New Abstract c) where
