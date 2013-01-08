@@ -45,7 +45,7 @@ type NewInstance c = RWST NewContext ([UntypedInstanceVar c], [Constraint Instan
 data New l c a where
   Abstract
     :: RWST (IORef Int) [Constraint Abstract c] () IO a
-    -> (a -> ReaderT Something (NewInstance c) a)
+    -> ReaderT Something (NewInstance c) a
     -> New Abstract c a
   Instance :: NewInstance c a -> New Instance c a
 
@@ -69,7 +69,7 @@ newAbstractVar = Abstract a i where
     let var = AbstractVar u
     -- tell [Left (untypeAbstract var)] -- don't care
     return var
-  i a = undefined {- do
+  i = undefined {- do
     u <- liftIO newUnique
     let var = case a of
                 AbstractVar u' -> InstanceVar u (Just u')
@@ -95,13 +95,24 @@ newInstanceVar = Instance $ do
   return ret
 
 instance Monad (New Abstract c) where
-  return x = Abstract (return x) (\_ -> return x)
-  (Abstract x y) >>= f = undefined {- Abstract fst snd where
+  return x = Abstract (return x) (return x)
+  (Abstract x y) >>= f = Abstract first (second x y f) where 
+    first = innerFst . f =<< x
+    innerFst (Abstract z _) = z
+  
+  {- Abstract fst snd where
     fst = innerFst . f =<< x
     innerFst (Abstract z _) = z
     snd b = ($ b) . innerSnd . f =<< y =<< Instance x
     innerSnd (Abstract _ z) = z
     -}
+second
+  :: RWST (IORef Int) [Constraint Abstract c] () IO a
+  -> ReaderT Something (NewInstance c) a
+  -> (a -> New Abstract c b) -- contains hidden b -> ReaderT ... b and RWST...b
+  -> ReaderT Something (NewInstance c) b
+second x y f = undefined
+
 instance MonadIO (New Abstract c)
 
 instance Monad (New Instance c) where
