@@ -51,6 +51,7 @@ module Solver (
   -- * Monads
   ReadAssign(),
   New(),
+  abstractIO,
   Init(),
   make,
 ) where
@@ -154,13 +155,17 @@ data Constraint l c = Constraint {
 type NewInstance c =
   RWST NewContext ([UntypedInstanceVar c], [Constraint Instance c]) () IO
 
+type AbstractInner c = RWST (IORef Int) [Constraint Abstract c] () IO
+type InstanceInner c = RWST NewContext ([UntypedInstanceVar c], [Constraint Instance c]) () IO
+
 -- | A monad for creating variables and constraints.
 data New level constraint a where
   NewAbstract
-    :: RWST (IORef Int) [Constraint Abstract constraint] () IO a
-    -> (a -> ReaderT Something (NewInstance constraint) a)
+    :: AbstractInner c (a, New Instance c a)
     -> New Abstract constraint a
-  NewInstance :: NewInstance constraint a -> New Instance constraint a
+  NewInstance
+    :: InstanceInner c a
+    -> New Instance constraint a
 
 data NewContext = NewContext {
   _newContextCollectable :: IO Bool,
@@ -376,7 +381,7 @@ nextId = undefined {- do
     return ret
     -}
 
-unNewInstance (NewInstance m) = m
+unNewInstance (NewInstance m) = undefined -- m
 
 instance Functor (New Instance c)
 instance Applicative (New Instance c)
@@ -393,9 +398,10 @@ runNewInstance
   :: New Instance c a
   -> NewContext
   -> IO (a, [UntypedInstanceVar c], [Constraint Instance c])
-runNewInstance (NewInstance m) c = do
+runNewInstance (NewInstance m) c = undefined {- do
   (ret, (vars, cs)) <- evalRWST m c ()
   return (ret, vars, cs)
+  -}
 
 tellUntypedInstanceVar :: UntypedInstanceVar c -> New Instance c ()
 tellUntypedInstanceVar var = NewInstance $ tell ([var], [])
@@ -405,9 +411,10 @@ liftAbstract m = undefined -- NewAbstract m (\_ -> NewInstance m)
 
 instance Functor (New Abstract c)
 instance Applicative (New Abstract c)
+{-
 instance Monad (New Abstract c) where
   return x = liftAbstract (return x)
-  (NewAbstract x y) >>= f = NewAbstract fst snd where
+  (NewAbstract inner) >>= f = undefined NewAbstract fst snd where
     fst = innerFst . f =<< x
     innerFst (NewAbstract z _) = z
     -- the problem is that I changed NewAbstract to work with a different r and w
@@ -415,20 +422,24 @@ instance Monad (New Abstract c) where
     -- (NewContext and ([UntypedInstanceVar c], [Constraint Instance c]))
     snd b = blah -- ($ b) . innerSnd . f =<< y =<< NewInstance x
     innerSnd (NewAbstract _ z) = z
+    -}
 
 blah = undefined
 
-instance MonadIO (New Abstract c) where
-  liftIO = liftAbstract . liftIO
+abstractIO :: IO a -> New Abstract c a
+abstractIO = undefined
+
+{-
 instance MonadReader NewContext (New Abstract c) where
   ask = undefined -- ask = liftAbstract . ask
   local = undefined -- local f (NewAbstract m n) = NewAbstract (local f m) (\_ -> local f n)
+  -}
 
 runNewAbstract
   :: New Abstract c a
-  -> NewContext
+  -> IORef Int
   -> IO (a, New Instance c a, [Constraint Abstract c])
-runNewAbstract (NewAbstract fst snd) c = undefined {- do
+runNewAbstract (NewAbstract inner) c = undefined {- do
   (ret, constraints) <- evalRWST fst c ()
   let instMaker = do
         i <- Instantiation <$> newUnique

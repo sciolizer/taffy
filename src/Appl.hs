@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 module Appl where
 
@@ -14,15 +15,18 @@ data Abstract
 data Instance
 
 group :: New Abstract c a -> Init c (New Instance c a)
-group = undefined
+group m = do
+  ref <- Init ask
+  (_, ret, cs) <- liftIO $ runNewAbstract m ref
 
 make :: New Instance c a -> Init c a
 make = undefined
 
 newtype AbstractVarId = AbstractVarId { unAbstractVarId :: Unique }
-data Var c a
-  = AbstractVar [a] AbstractVarId
-  | InstanceVar [a] Unique (Maybe (Instantiation, AbstractVarId) {- parent abstract var -})
+data Var c a where
+  AbstractVar :: [a] -> AbstractVarId -> Var c a
+  InstanceVar :: [a] -> Unique -> Maybe (Instantiation, AbstractVarId) {- parent abstract var -} -> Var c a
+
 data UntypedInstanceVar c
 data Constraint l c = Constraint Unique
 
@@ -32,8 +36,8 @@ class (Applicative m) => ApplicativeIO m where
 class Level l where
   newVar :: [a] -> New l c (Var c a)
   newConstraint :: ReadAssign l c Bool -> New l c ()
-  readVar :: Var c a -> ReadAssign l c [a]
-  writeVar :: Var c a -> [a] -> ReadAssign l c ()
+  -- readVar :: Var c a -> ReadAssign l c [a]
+  -- writeVar :: Var c a -> [a] -> ReadAssign l c ()
 
 instance Level Instance where
 
@@ -54,7 +58,6 @@ instance Level Abstract where
     u <- liftIO newUnique
     tell [Constraint u]
     return ((), return ())
-  readVar (InstanceVar _ _ _) = error "cannot read from instance var"
 
 internalBug = error
 
@@ -107,7 +110,10 @@ instance Functor (ReadAssign Instance c)
 instance Applicative (ReadAssign Instance c)
 instance Monad (ReadAssign Instance c)
 
-data Init c a
+newtype Init c a = Init (RWST (IORef Int) [Constraint Abstract c] () (New Instance c) a)
+  deriving (Applicative, Functor, Monad, MonadIO)
+{-
 instance Functor (Init c)
 instance Applicative (Init c)
 instance Monad (Init c)
+-}
