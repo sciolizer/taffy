@@ -300,8 +300,8 @@ instance Eq NameAndIdentity where (==) = (==) `on` identity
 instance Ord NameAndIdentity where compare = compare `on` identity
 instance Show NameAndIdentity where show = name
 
-mkName :: (IdSource m) => Maybe String -> String -> m NameAndIdentity
-mkName mbName s = undefined {- do
+mkName :: (IdSource m, MonadIO m) => Maybe String -> String -> m NameAndIdentity
+mkName mbName s = do
   name <- case mbName of
     Nothing -> do
       id <- nextId
@@ -309,7 +309,6 @@ mkName mbName s = undefined {- do
     Just x -> return x
   u <- liftIO newUnique
   return (NameAndIdentity name u)
-  -}
 
 orderValues
   :: Values c a
@@ -354,7 +353,7 @@ instance Show (Constraint l c) where show = show . constraintIdentity
 
 -- | Creates a new constraint.
 newConstraint'
-  :: (IdSource m, Monad m)
+  :: (IdSource m, MonadIO m)
   => Maybe String -- ^ optional name
   -> c -- ^ constraint
   -> ReadAssign l c Bool -- ^ resolver
