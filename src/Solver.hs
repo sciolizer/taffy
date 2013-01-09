@@ -439,15 +439,15 @@ deriving instance Functor (Init c)
 deriving instance Monad (Init c)
 deriving instance MonadIO (Init c)
 deriving instance MonadWriter [Constraint Abstract c] (Init c)
+
 runInit
   :: Init c a
   -> IO (a, IORef Int, [UntypedInstanceVar c], [Constraint Instance c], [Constraint Abstract c])
-runInit (Init m) = undefined {- do
+runInit (Init m) = do
   n <- newIORef 0
   let context = NewContext (return False) Nothing n
-  ((a, cas), vars, cis) <- runNewInstance (evalRWST m context ()) context
+  ((a, cas), vars, cis) <- runNewInstance (evalRWST m n ()) context
   return (a, n, vars, cis, cas)
-  -}
 
 -- | Groups a collection of abstract vars and constraints into
 -- one, so that the pattern can be instantiated multiple times.
