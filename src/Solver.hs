@@ -666,13 +666,13 @@ internalBug = error
 
 instance Level Instance where
   newVar mbName values = do
-    name <- undefined -- mkName mbName "instance var"
+    name <- mkName mbName "instance var"
     ret <- liftIO $ do
       vals <- orderValues values
-      state <- newIORef . InstanceVarState . M.keysSet $ values
-      return . VarInstance $ InstanceVar Nothing undefined {- state -} (VarCommon name vals)
-    tellUntypedInstanceVar undefined -- (untype undefined) -- ret)
-    return ret
+      state <- newIORef . flip InstanceVarState M.empty . M.keysSet $ values
+      return $ InstanceVar Nothing state (VarCommon name vals)
+    tellUntypedInstanceVar (untype ret)
+    return (VarInstance ret)
 
   -- readIvar :: Ivar constraint a -> IO (S.Set a)
   readVar iv = undefined -- _candidates <$> liftIO (readIORef (_instanceVarState iv))
