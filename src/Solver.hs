@@ -57,7 +57,7 @@ module Solver (
 ) where
 
 import Control.Applicative
-import Control.Arrow
+import Control.Arrow (first)
 import Control.Exception
 import Control.Lens
 import Control.Monad.IO.Class
@@ -233,8 +233,8 @@ data SolveContext c = SolveContext {
 data SolveState c = SolveState {
   _assignedVars :: [AssignmentFrame c], -- head is most recently assigned
   _unassignedVars :: S.Set (UntypedInstanceVar c),
-  _unrevisedInstanceConstraints :: S.Set (ReadAssign Instance c Bool),
-  _unrevisedAbstractConstraints :: S.Set (ReadAssign Abstract c Bool, Instantiation),
+  _unrevisedInstanceConstraints :: Constraints Instance c,
+  _unrevisedAbstractConstraints :: S.Set (Constraint Abstract c, Instantiation),
   _learntInstanceConstraints :: S.Set (Constraint Instance c),
   _learntAbstractConstraints :: S.Set (Constraint Abstract c) }
 
@@ -595,8 +595,8 @@ choose x xs = undefined {- do
   propagateEffects [a]
   -}
 
-propagateEffects :: [Assignment c] -> Solve c Bool
-propagateEffects as = undefined {- do
+propagateEffects :: (Ord c) => [Assignment c] -> Solve c Bool
+propagateEffects as = do
   -- check to see if any variables are now empty
   contradiction <- any null <$> liftIO (mapM (untypedInstanceVarValues . assignmentVar) as)
   if contradiction then jumpback else do
@@ -608,19 +608,14 @@ propagateEffects as = undefined {- do
   -- for each assignment made, re-run the constraints (instance and abstract)
   forM_ as $ \a -> do
     let uiv = assignmentVar a
-    let getConstraints f = map (a,) <$> (liftIO $ readIORef (varConstraints . f . assignmentVar $ a))
-    cs1 <- getConstraints uivarVar
-    cs2 <- getConstraints $ _instanceVarAbstractVar
-    cs1 <- map (a,) <$> (liftIO $ undefined)
-    VarInstance x ->
-      fst = _instanceConstraints . readIORef (_instanceVarState iv
-      include <$> case _instanceVarAbstractVar x of
-                    Nothing -> _instanceConstraints
-                    Just (av, i) -> 
-                    _instanceVarCommon
-    unrevisedConstraints %= S.union (map (a,) cs1) . S.union cs2
+    instanceConstraints <- liftIO . readIORef . untypedInstanceVarInstanceConstraints $ uiv
+    unrevisedInstanceConstraints %= S.union instanceConstraints
+    case untypedInstanceVarAbstractVar uiv of
+      Nothing -> return ()
+      Just (uav, inst) -> do
+        acs <- liftIO . readIORef $ untypedAbstractVarAbstractConstraints uav
+        unrevisedAbstractConstraints %= S.union (S.mapMonotonic (,inst) acs)
   loop
-  -}
 
 runEffects :: [Assignment c] -> Solve c ([UntypedInstanceVar c], [Constraint Instance c])
 runEffects as = do
