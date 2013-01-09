@@ -675,7 +675,7 @@ instance Level Instance where
     return (VarInstance ret)
 
   -- readIvar :: Ivar constraint a -> IO (S.Set a)
-  readVar iv = undefined -- _candidates <$> liftIO (readIORef (_instanceVarState iv))
+  readVar (VarInstance iv) = _candidates <$> liftIO (readIORef (_instanceVarState iv))
 
   -- setVar :: (Ord a) => Ivar constraint a -> a -> Assign constraint ()
   setVar (VarInstance iv) v = modifyInstanceVar iv collapse where
