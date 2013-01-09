@@ -4,6 +4,8 @@
 module Appl where
 
 import Control.Applicative
+import Control.Exception
+import Control.Monad.IO.Class
 import Control.Monad.RWS
 import Data.IORef
 import Data.Unique
@@ -17,9 +19,15 @@ group = undefined
 make :: New Instance c a -> Init c a
 make = undefined
 
+newtype AbstractVarId = AbstractVarId { unAbstractVarId :: Unique }
 data Var c a
+  = AbstractVar [a] AbstractVarId
+  | InstanceVar [a] Unique (Maybe (Instantiation, AbstractVarId) {- parent abstract var -})
 data UntypedInstanceVar c
-data Constraint l c
+data Constraint l c = Constraint Unique
+
+class (Applicative m) => ApplicativeIO m where
+  applicativeIO :: IO a -> m a
 
 class Level l where
   newVar :: [a] -> New l c (Var c a)
@@ -30,6 +38,25 @@ class Level l where
 instance Level Instance where
 
 instance Level Abstract where
+  newVar vals = NewAbstract ret where
+    ret = do
+      u <- AbstractVarId <$> liftIO newUnique
+      let av = AbstractVar vals u
+      let iv = do
+            u' <- liftIO $ newUnique
+            mbInst <- NewInstance (asks instantiation)
+            i <- case mbInst of
+                   Nothing -> liftIO . throwIO . userError . internalBug $ "patterned instance var created, but no instantiation in context"
+                   Just i -> return i
+            return (InstanceVar vals u' (Just (i, u)))
+      return (av, iv)
+  newConstraint ra = NewAbstract $ do
+    u <- liftIO newUnique
+    tell [Constraint u]
+    return ((), return ())
+  readVar (InstanceVar _ _ _) = error "cannot read from instance var"
+
+internalBug = error
 
 -- probably new should not be a pair: instead of the
 -- instance case being built up separately, it should be the
@@ -53,133 +80,24 @@ newtype Instantiation = Instantiation { unInstantiation :: Unique }
 instance Functor (New Instance c)
 instance Applicative (New Instance c)
 instance Monad (New Instance c)
+instance MonadIO (New Instance c)
 
 instance Functor (New Abstract c) where
   fmap f (NewAbstract m) = NewAbstract (fmap g m) where
     g (x, y) = (f x, fmap f y)
 instance Applicative (New Abstract c) where
   pure x = NewAbstract (pure (x, pure x))
-  (NewAbstract f) <*> (NewAbstract x) = NewAbstract (q f x) -- where
-    {-
-    f' :: AbstractInner c ((a, New Instance c a) -> (b, New Instance c b))
-    f' = pure g
-    g :: (a, New Instance c a) -> (b, New Instance c b)
-    g (a, b) = (f <*> a, undefined)
-    -}
-    -- x' :: AbstractInner c (a, New Instance c a)
-    -- x' = x
-q
-  :: AbstractInner c (a -> b, New Instance c (a -> b))
-  -> AbstractInner c (a, New Instance c a)
-  -> AbstractInner c (b, New Instance c b)
-q f x = (,) <$> g1 f (h1 x) <*> g2 f (h2 x)
+  (NewAbstract f) <*> (NewAbstract x) = NewAbstract pair where
+    pair = (,) <$> (fst <$> f <*> (fst <$> x)) <*> starstar (snd <$> f) (snd <$> x)
+instance ApplicativeIO (New Abstract c) where
+  applicativeIO m = NewAbstract ((,) <$> liftIO m <*> return (liftIO m))
 
-g1
-  :: AbstractInner c (a -> b, New Instance c (a -> b))
-  -> AbstractInner c a
-  -> AbstractInner c b
-g1 f x = q <*> x where
-  q = fst <$> f
-
-h1 :: AbstractInner c (a, New Instance c a) -> AbstractInner c a
-h1 = (fst <$>)
-
-g2
-  :: AbstractInner c (a -> b, New Instance c (a -> b))
-  -> AbstractInner c (New Instance c a)
-  -> AbstractInner c (New Instance c b)
-g2 f x = something q x where
-  q = snd <$> f
-
-something
-  :: AbstractInner c (New Instance c (a -> b))
-  -> AbstractInner c (New Instance c a)
-  -> AbstractInner c (New Instance c b)
-something f x = generic f x
-
-generic
+starstar
   :: (Applicative f, Applicative g)
   => f (g (a -> b))
   -> f (g a)
   -> f (g b)
-generic f x = qeh f <*> x
-
-qeh :: (Applicative f, Applicative g) => f (g (a -> b)) -> f (g a -> g b)
-qeh = fmap quux
-
-quux :: (Applicative g) => g (a -> b) -> g a -> g b
-quux = (<*>)
-
-{-
-quux
-  :: (Applicative f, Applicative g)
-  => f (g (a -> b))
-  -> (g (a -> b) -> f (g a -> g b))
-  -> f (g a -> g b)
-quux = undefined
-
-bar
-  :: (Applicative g)
-  => g (a -> b) -> g a -> g b
-bar = (<*>)
--}
-{-
-s2 :: AbstractInner c (New Instance c (a -> b))
-   -> AbstractInner c (New Instance c a -> New Instance c b)
-s2 f = (s3 f <*>)
-
-s3 :: AbstractInner c (New Instance c (a -> b))
-   -> New Instance c (a -> b)
-s3 = undefined
--}
-
-h2 :: AbstractInner c (a, New Instance c a) -> AbstractInner c (New Instance c a)
-h2 = (snd <$>)
-
-
-{-
-f'
-  :: AbstractInner c (a -> b, New Instance c (a -> b))
-  -> AbstractInner c ((a, New Instance c a) -> (b, New Instance c b))
-f' f = pure (g f)
-
-g :: AbstractInner c (a -> b, New Instance c (a -> b))
-  -> (a, New Instance c a) -> (b, New Instance c b)
-g = undefined
--}
-
-{-
-instance Monad (New Abstract c) where
-  return x = NewAbstract (return (x, return x))
-  (NewAbstract x) >>= f = foo x f
-
-foo :: AbstractInner c (a, New Instance c a)
-    -> (a -> New Abstract c b)
-    -> New Abstract c b
-foo x f = NewAbstract (x >>= g f)
-
--- f :: a -> New Abstract c b
--- x :: AbstractInner c (a, New Instance c a)
--- x >>= q -> q :: (a, New Instance c a)
-g :: (a -> New Abstract c b)
-  -> (a, New Instance c a) -> AbstractInner c (b, New Instance c b)
-g f (y, z) = unwrap1 (f y) {- do
-  (q,s) <- unwrap1 (f y)
-  r <- unwrap2 f s z
-  return (q, r)
-  -}
-  -- how is it ok to drop the z?
-
-unwrap1 :: New Abstract c b -> AbstractInner c (b, New Instance c b)
-unwrap1 (NewAbstract q) = q
-
-unwrap2
-  :: (a -> New Abstract c b) -- produces b and New Instance c b
-  -> New Instance c b
-  -> New Instance c a
-  -> AbstractInner c (New Instance c b)
-unwrap2 = undefined
--}
+starstar f x = fmap (<*>) f <*> x
 
 data ReadAssign l c a
 instance Functor (ReadAssign Abstract c)
