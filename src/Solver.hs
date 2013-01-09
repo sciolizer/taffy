@@ -472,13 +472,13 @@ runReadAssignAbstract
   -> IO (a, [Assignment c])
 runReadAssignAbstract (ReadAssign m) i = evalRWST m (JustInstantiation i) ()
 
-modifyInstanceVar :: Var c a -> (S.Set a -> S.Set a) -> ReadAssign Instance c ()
+modifyInstanceVar :: InstanceVar c a -> (S.Set a -> S.Set a) -> ReadAssign Instance c ()
 modifyInstanceVar iv mod = undefined {- do
   orig <- liftIO $ do
     let ref = _instanceVarState iv
-    candidates <- _candidates <$> readIORef ref
+    cs <- _candidates <$> readIORef ref
     modifyIORef ref (over candidates mod)
-    return candidates
+    return cs
   dirtyVar iv orig
   -}
 
@@ -675,11 +675,16 @@ instance Level Instance where
   readVar iv = undefined -- _candidates <$> liftIO (readIORef (_instanceVarState iv))
 
   -- setVar :: (Ord a) => Ivar constraint a -> a -> Assign constraint ()
-  setVar iv v = modifyInstanceVar iv collapse where
+  setVar (VarInstance iv) v = modifyInstanceVar iv collapse where
     collapse cds | S.member v cds = S.singleton v
                  | otherwise = S.empty
+  setVar (VarAbstract va) _ = illegalUseOfAbstractVariable "set" va
 
   -- shrinkIvar :: (Ord a) => Ivar constraint a -> a -> Assign constraint ()
-  shrinkVar iv v = modifyInstanceVar iv (S.delete v)
+  shrinkVar (VarInstance iv) v = modifyInstanceVar iv (S.delete v)
+  shrinkVar (VarAbstract va) _ = illegalUseOfAbstractVariable "shrink" va
+
+illegalUseOfAbstractVariable action va = liftIO . throwIO . userError . illegalArgument $ "cannot " ++ action ++ " abstract variable " ++ (name . _varCommonIdentity . _abstractVarCommon $ va) ++ " when inside 'ReadAssign Instance constraint' monad" where
+  illegalArgument = error
 
 debug = liftIO . putStrLn
