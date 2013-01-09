@@ -459,7 +459,7 @@ group m = do
   return ret
 
 make :: New Instance constraint a -> Init constraint a
-make = undefined -- lift
+make = Init . lift
 
 -- runAssign :: Assign c a -> IO (a, [Assignment])
 runReadAssignInstance :: ReadAssign Instance c a -> IO (a, [Assignment c])
