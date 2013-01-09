@@ -313,14 +313,13 @@ mkName mbName s = do
 orderValues
   :: Values c a
   -> IO [(a, New Instance c ())]
-orderValues values = undefined {- z where
+orderValues values = z where
   z = map snd . sortBy (compare `on` fst) <$> mapM varCount (M.toList values)
   varCount (a, maker) = do
-    stubState <- NewContext (return False) Nothing <$> newIORef (NewState 0 0 0)
+    stubState <- NewContext (return False) Nothing <$> newIORef 0
     ((), newVars, _newConstraints) <- runNewInstance maker stubState
-    cost <- product <$> mapM (\x -> length <$> uvarValues x) newVars
+    cost <- product <$> mapM (\x -> length <$> untypedInstanceVarValues x) newVars
     return (cost :: Int, (a, maker))
-    -}
 
 varCommon (VarAbstract av) = _abstractVarCommon av
 varCommon (VarInstance iv) = _instanceVarCommon iv
