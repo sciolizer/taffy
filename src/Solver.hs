@@ -270,7 +270,8 @@ type Values constraint a = M.Map a (New Instance constraint ())
 class Level level where
   -- | Creates an new variable.
   newVar
-    :: Maybe String -- ^ name of the variable, for debugging
+    :: Ord a
+    => Maybe String -- ^ name of the variable, for debugging
     -> Values constraint a -- ^ candidate assignments to the variable
     -> New level constraint (Var constraint a)
 
@@ -336,15 +337,13 @@ instance Eq (UntypedInstanceVar c) where (==) = (==) `on` untypedInstanceVarIden
 instance Ord (UntypedInstanceVar c) where compare = compare `on` untypedInstanceVarIdentity
 instance Show (UntypedInstanceVar c) where show = show . untypedInstanceVarIdentity
 
-untype :: InstanceVar c a -> UntypedInstanceVar c
-untype iv = undefined {- UntypedVar ni setters where
-  ni = _varIdentity . varCommon $ iv
-  allValues = map head . _values . varCommon $ iv
+untype :: (Ord a) => InstanceVar c a -> UntypedInstanceVar c
+untype iv = UntypedInstanceVar ni setters where
+  (VarCommon ni allValues) = _instanceVarCommon iv
   candidates = _candidates <$> readIORef (_instanceVarState iv)
   setters = do
     cs <- candidates
-    return . filter (flip S.member cs) $ allValues
-    -}
+    return . map (setVar (VarInstance iv)) . filter (flip S.member cs) . map fst $ allValues
 
 instance (Eq c) => Eq (Constraint l c) where (==) = (==) `on` constraintIdentity
 instance (Ord c) => Ord (Constraint l c) where compare = compare `on` constraintIdentity
@@ -687,7 +686,7 @@ instance Level Instance where
       vals <- orderValues values
       state <- newIORef . InstanceVarState . M.keysSet $ values
       return . VarInstance $ InstanceVar Nothing undefined {- state -} (VarCommon name vals)
-    tellUntypedInstanceVar (untype undefined) -- ret)
+    tellUntypedInstanceVar undefined -- (untype undefined) -- ret)
     return ret
 
   -- readIvar :: Ivar constraint a -> IO (S.Set a)
