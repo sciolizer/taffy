@@ -472,15 +472,18 @@ runReadAssignAbstract
   -> IO (a, [Assignment c])
 runReadAssignAbstract (ReadAssign m) i = evalRWST m (JustInstantiation i) ()
 
-modifyInstanceVar :: InstanceVar c a -> (S.Set a -> S.Set a) -> ReadAssign Instance c ()
-modifyInstanceVar iv mod = undefined {- do
+modifyInstanceVar
+  :: (Ord a)
+  => InstanceVar c a
+  -> (S.Set a -> S.Set a)
+  -> ReadAssign Instance c ()
+modifyInstanceVar iv mod = do
   orig <- liftIO $ do
     let ref = _instanceVarState iv
     cs <- _candidates <$> readIORef ref
     modifyIORef ref (over candidates mod)
     return cs
   dirtyVar iv orig
-  -}
 
 dirtyVar :: (Ord a) => InstanceVar c a -> S.Set a -> ReadAssign Instance c ()
 dirtyVar iv orig = ReadAssign $ do
