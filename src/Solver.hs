@@ -563,6 +563,7 @@ loop = undefined {- do
       assignedVars %= (reverse (map (\a -> AssignmentFrame (assignmentUndo a) [] False) as) ++)
       if not satisfiable then jumpback else do
       propagateEffects as
+      -}
 
 jumpback :: (Ord c) => Solve c Bool
 jumpback = do
@@ -581,13 +582,14 @@ stepback (x:xs) = do
     [] -> stepback xs
     (y:ys) -> choose y ys
 
-choose x xs = do
+choose x xs = undefined {- do
   ((), [a]) <- liftIO $ runReadAssign x
   assignedVars %= (AssignmentFrame (assignmentUndo a) xs True :)
   propagateEffects [a]
+  -}
 
 propagateEffects :: [Assignment c] -> Solve c Bool
-propagateEffects as = do
+propagateEffects as = undefined {- do
   contradiction <- any null <$> liftIO (mapM (untypedInstanceVarValues . assignmentVar) as)
   if contradiction then jumpback else do
   (newVars, newConstraints) <- runEffects as
@@ -598,7 +600,7 @@ propagateEffects as = do
     let getConstraints f = map (a,) <$> (liftIO $ readIORef (varConstraints . f . assignmentVar $ a))
     cs1 <- getConstraints uivarVar
     cs2 <- getConstraints uivarAvar
-    cs1 <- map (a,) <$> (liftIO $ 
+    cs1 <- map (a,) <$> (liftIO $ undefined)
     VarInstance x ->
       fst = _instanceConstraints . readIORef (_instanceVarState iv
       include <$> case _instanceVarAbstractVar x of
@@ -607,9 +609,10 @@ propagateEffects as = do
                     _instanceVarCommon
     unrevisedConstraints %= S.union (map (a,) cs1) . S.union cs2
   loop
+  -}
 
-runEffects :: [Assignment c] -> Solve c ([UntypedInstanceVar c], [Constraint c])
-runEffects as = do
+runEffects :: [Assignment c] -> Solve c ([UntypedInstanceVar c], [Constraint Instance c])
+runEffects as = undefined {- do
   nextIdRef <- view solveNext
   liftIO $ do
     -- todo: change collectable to be dependent on whether
@@ -617,6 +620,7 @@ runEffects as = do
     let context = NewContext (return False) Nothing nextIdRef
     out <- mapM ((flip runNewInstance context) . assignmentEffect) as
     return . (\(vss,css) -> (concat vss, concat css)) . unzip . map (\((),v,c) -> (v,c)) $ out
+    -}
 
 -- For some reason ghc can't infer this type.
 pop :: MonadState s m => Simple Lens s (S.Set a) -> m (Maybe a)
@@ -626,7 +630,6 @@ pop set  = do
   let (v, s') = S.deleteFindMin s -- todo: better variable ordering
   set .= s'
   return (Just v)
-  -}
 
 instance Level Abstract where
   newVar mbName values = NewAbstract $ do
