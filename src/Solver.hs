@@ -158,7 +158,7 @@ data Constraint l c = Constraint {
   constraintCollectable :: IO Bool }
 
 type AbstractInner c = RWST (IORef Int) [Constraint Abstract c] () IO
-type InstanceInner c = RWST NewContext ([UntypedInstanceVar c], [Constraint Instance c]) () IO
+type InstanceInner c = RWST NewContext ([UntypedInstanceVar c], [Constraint Instance c], [Assignment c]) Bool IO
 
 -- | A monad for creating variables and constraints.
 data New level constraint a where
@@ -206,14 +206,16 @@ newtype Init constraint a = Init (RWST (IORef Int) [Constraint Abstract constrai
 --
 -- The ReadAssign monad wraps the IO monad, to make debugging easier.
 -- However, the solver assumes that the ReadAssign monad is stateless.
-newtype ReadAssign level constraint a = ReadAssign (RWST (MaybeInstantiation level) [Assignment constraint] () IO a)
+newtype ReadAssign level constraint a = ReadAssign (RWST (ReadAssignContext level constraint) [Assignment constraint] () IO a)
   deriving (Applicative, Functor, Monad, MonadIO)
   -- if level is Instance, read context will be nothing
   -- if level is Abstract, read context with be just the instantiation.
 
-data MaybeInstantiation level where
-  NothingInstantiation :: MaybeInstantiation Instance
-  JustInstantiation :: Instantiation -> MaybeInstantiation Abstract
+data ReadAssignContext level c where
+  InstanceReadAssignContext
+    :: Constraint Instance c -> ReadAssignContext Instance c
+  AbstractReadAssignContext
+    :: Instantiation -> Constraint Abstract c -> ReadAssignContext Abstract c
 
 data Assignment c = Assignment {
   assignmentVar :: UntypedInstanceVar c,
@@ -372,6 +374,12 @@ newConstraint' mbName c resolve = do
   name <- mkName mbName "constraint"
   let collectable = return False -- todo: make depend on values of variables
   let c' = Constraint name (Just c) resolve (return False)
+  -- the question is: can I add "current constraint" to the context of the
+  -- ReadAssign monad? Will I always have a constraint available to put
+  -- into the context?
+  -- in the arg to the solve function: no. the only other place is
+  -- in newConstraint, where obviously it can
+  -- so... can I make a dummy constraint for use in the solve function?
   -- runDependencies c (bounded resolve) -- todo: inject constraint into relevant vars
   return c'
 
@@ -404,10 +412,12 @@ instance IdSource (New Instance c) where
 runNewInstance
   :: New Instance c a
   -> NewContext
-  -> IO (a, [UntypedInstanceVar c], [Constraint Instance c])
+  -- bool indicates if problem became unsatisfiable because of a newly
+  -- constructed constraint that could not be satisfied
+  -> IO (a, Bool, [UntypedInstanceVar c], [Constraint Instance c])
 runNewInstance (NewInstance m) c = do
-  (ret, (vars, cs)) <- evalRWST m c ()
-  return (ret, vars, cs)
+  (ret, b, (vars, cs)) <- runRWST m c ()
+  return (ret, b, vars, cs)
 
 tellUntypedInstanceVar :: UntypedInstanceVar c -> New Instance c ()
 tellUntypedInstanceVar var = NewInstance $ tell ([var], [])
@@ -474,14 +484,18 @@ make :: New Instance constraint a -> Init constraint a
 make = Init . lift
 
 -- runAssign :: Assign c a -> IO (a, [Assignment])
-runReadAssignInstance :: ReadAssign Instance c a -> IO (a, [Assignment c])
-runReadAssignInstance (ReadAssign m) = evalRWST m NothingInstantiation ()
+runReadAssignInstance
+  :: ReadAssign Instance c a
+  -> Constraint Instance c
+  -> IO (a, [Assignment c])
+runReadAssignInstance (ReadAssign m) c = evalRWST m (InstanceReadAssignContext c) ()
 
 runReadAssignAbstract
   :: ReadAssign Abstract c a
   -> Instantiation
+  -> Constraint Abstract c
   -> IO (a, [Assignment c])
-runReadAssignAbstract (ReadAssign m) i = evalRWST m (JustInstantiation i) ()
+runReadAssignAbstract (ReadAssign m) i c = evalRWST m (AbstractReadAssignContext i c) ()
 
 modifyInstanceVar
   :: (Ord a)
@@ -668,14 +682,20 @@ instance Level Abstract where
           return (VarInstance var)
     return (VarAbstract u', iv)
 
-  newConstraint mbName c resolve = NewAbstract z where
-    z = do
-      -- what I end up doing with fixme will probably depend on whether
-      -- I can successfully implement newConstraint' or not
-      c' <- newConstraint' mbName c resolve
-      tell [c']
-      return ((), return () {- is this right? -})
-    -- unNewAbstract (NewAbstract x) = x
+  newConstraint mbName c resolve = NewAbstract $ do
+    -- what I end up doing with fixme will probably depend on whether
+    -- I can successfully implement newConstraint' or not
+    c' <- newConstraint' mbName c resolve
+    tell [c']
+    -- agh... how do I wire myself up to the relevant abstract vars?
+    -- what is readVar supposed to do without a particular instantiation?
+    -- I suppose if there's no instantiation, readVar can just return ALL
+    -- values, and the setVar and shrinkVar are no-ops
+    -- its ok to ignore when _b is False (the pattern might never
+    -- be instantiated), and when _assgns is not null (the assignments
+    -- are for dummy variables anyway)
+    (_b, _assgns) <- liftIO $ runReadAssignAbstract resolve Nothing c'
+    return ((), return () {- is this right? -})
 
 internalBug = error
 
@@ -703,7 +723,22 @@ instance Level Instance where
   shrinkVar (VarInstance iv) v = modifyInstanceVar iv (S.delete v)
   shrinkVar (VarAbstract va) _ = illegalUseOfAbstractVariable "shrink" va
 
+  newConstraint mbName c resolve = NewInstance $ do
+    -- what I end up doing with fixme will probably depend on whether
+    -- I can successfully implement newConstraint' or not
+    c' <- newConstraint' mbName c resolve
+    -- agh... how do I wire myself up to the relevant abstract vars?
+    -- what is readVar supposed to do without a particular instantiation?
+    -- I suppose if there's no instantiation, readVar can just return ALL
+    -- values, and the setVar and shrinkVar are no-ops
+    (b, assgns) <- liftIO $ runReadAssignInstance resolve c'
+    when (not b) $ put False -- newly created constraint is unsatisfiable
+    tell ([], [c'], assgns)
+
 illegalUseOfAbstractVariable action va = liftIO . throwIO . userError . illegalArgument $ "cannot " ++ action ++ " abstract variable " ++ (name . _varCommonIdentity . _abstractVarCommon $ va) ++ " when inside 'ReadAssign Instance constraint' monad" where
   illegalArgument = error
 
 debug = liftIO . putStrLn
+
+-- todo: make sure that readVar, setVar, and shrinkVar all look at their ReadAssign
+-- context and inject constraints into themselves if they need to
