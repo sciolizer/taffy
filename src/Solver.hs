@@ -652,12 +652,13 @@ instance Level Abstract where
               id <- nextId
               return . (("instance " ++ show id ++ " of ") ++) . name . _varCommonIdentity . _abstractVarCommon $ u'
             identity <- liftIO newUnique
-            state <- liftIO . newIORef . InstanceVarState . M.keysSet $ values
-            let ret = InstanceVar (Just undefined {- u' -}) undefined {- state -} (set varCommonIdentity (NameAndIdentity ivName identity) (_abstractVarCommon undefined)) -- a))
+            state <- liftIO . newIORef . flip InstanceVarState M.empty . M.keysSet $ values
             mbInst <- view newContextInstantiation
-            liftIO $ case mbInst of
+            inst <- liftIO $ case mbInst of
               Nothing -> throwIO . userError . internalBug $ "no instantiation for instantiated variable"
-              Just inst -> modifyIORef undefined {- u' -} . over instances . M.insert inst $ ret
+              Just inst -> return inst
+            let ret = InstanceVar (Just (u', inst)) state (set varCommonIdentity (NameAndIdentity ivName identity) (_abstractVarCommon u'))
+            liftIO $ modifyIORef (_abstractVarState u') . over instances . M.insert inst $ ret
             return ret
           NewInstance $ tell ([untype var], [])
           return (VarInstance var)
