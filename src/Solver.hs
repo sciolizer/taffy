@@ -267,7 +267,6 @@ makeLenses ''NewContext
 -- and constraints.
 type Values constraint a = M.Map a (New Instance constraint ())
 
-
 class Level level where
   -- | Creates an new variable.
   newVar
@@ -301,7 +300,7 @@ instance Eq NameAndIdentity where (==) = (==) `on` identity
 instance Ord NameAndIdentity where compare = compare `on` identity
 instance Show NameAndIdentity where show = name
 
-mkName :: (MonadReader (IORef Int) m) => Maybe String -> String -> m NameAndIdentity
+mkName :: (IdSource m) => Maybe String -> String -> m NameAndIdentity
 mkName mbName s = undefined {- do
   name <- case mbName of
     Nothing -> do
@@ -355,27 +354,28 @@ instance Show (Constraint l c) where show = show . constraintIdentity
 
 -- | Creates a new constraint.
 newConstraint'
-  -- todo: put type class constraints here indicating New l c is a monad
-  :: Maybe String -- ^ optional name
+  :: (IdSource m, Monad m)
+  => Maybe String -- ^ optional name
   -> c -- ^ constraint
   -> ReadAssign l c Bool -- ^ resolver
-  -> New l c (Constraint l constraint)
-newConstraint' mbName c resolve = undefined {- do
+  -> m (Constraint l c)
+newConstraint' mbName c resolve = do
   name <- mkName mbName "constraint"
   let collectable = return False -- todo: make depend on values of variables
-  let c = Constraint name (Just c) (return False)
-  tell [c]
-  runDependencies c (bounded resolve)
-  -}
+  let c' = Constraint name (Just c) resolve (return False)
+  -- runDependencies c (bounded resolve) -- todo: inject constraint into relevant vars
+  return c'
 
-nextId :: (MonadReader NewContext (New l c), Num a) => New l c a
-nextId = undefined {- do
-  ref <- asks _newState
+class IdSource m where
+  idSource :: m (IORef Int)
+
+nextId :: (IdSource m, MonadIO m) => m Int
+nextId = do
+  ref <- idSource
   liftIO $ do
-    ret <- view lens <$> readIORef ref
-    modifyIORef ref (over lens (+1))
+    ret <- readIORef ref
+    modifyIORef ref (+1)
     return ret
-    -}
 
 unNewInstance (NewInstance m) = undefined -- m
 
@@ -389,6 +389,8 @@ instance MonadIO (New Instance c) where
 instance MonadReader NewContext (New Instance c) where
   ask = NewInstance ask
   local f (NewInstance m) = NewInstance (local f m)
+instance IdSource (New Instance c) where
+  idSource = NewInstance (asks _newContextNext)
 
 runNewInstance
   :: New Instance c a
@@ -405,13 +407,14 @@ tellUntypedInstanceVar var = NewInstance $ tell ([var], [])
 instance Functor (New Abstract c) where
   fmap f (NewAbstract m) = NewAbstract (fmap g m) where
     g (x, y) = (f x, fmap f y)
-
 instance Applicative (New Abstract c) where
   pure x = NewAbstract (pure (x, pure x))
   (NewAbstract f) <*> (NewAbstract x) = NewAbstract pair where
     pair = (,) <$> (fst <$> f <*> (fst <$> x)) <*> starstar (snd <$> f) (snd <$> x)
     starstar :: (Applicative f, Applicative g) => f (g (a -> b)) -> f (g a) -> f (g b)
     starstar f x = fmap (<*>) f <*> x
+instance IdSource (AbstractInner c) where
+  idSource = ask
 
 -- | Lifts an IO action into New Abstract. For New Instance, just
 -- use 'liftIO'.
@@ -672,18 +675,10 @@ instance Level Abstract where
     z = do
       -- what I end up doing with fixme will probably depend on whether
       -- I can successfully implement newConstraint' or not
-      (c',fixme) <- unNewAbstract (newConstraint' mbName c resolve)
+      c' <- newConstraint' mbName c resolve
       tell [c']
       return ((), return () {- is this right? -})
-    unNewAbstract (NewAbstract x) = x
-
-asdf :: (a -> New Abstract c b) -> New Abstract c (a -> b)
-asdf f = NewAbstract (fdsa f)
-
-fdsa :: (a -> New Abstract c b) -> AbstractInner c (a -> b, New Instance c (a -> b))
-fdsa = undefined
-
-instance Monad (New Abstract c)
+    -- unNewAbstract (NewAbstract x) = x
 
 internalBug = error
 
