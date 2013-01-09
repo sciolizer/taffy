@@ -17,7 +17,7 @@ data Instance
 group :: New Abstract c a -> Init c (New Instance c a)
 group m = do
   ref <- Init ask
-  (_, ret, cs) <- liftIO $ runNewAbstract m ref
+  undefined -- (_, ret, cs) <- liftIO $ runNewAbstract m ref
 
 make :: New Instance c a -> Init c a
 make = undefined
@@ -117,3 +117,7 @@ instance Functor (Init c)
 instance Applicative (Init c)
 instance Monad (Init c)
 -}
+
+--
+bind :: (Applicative m, Monad m) => (m (m b) -> m b) -> m a -> (a -> m b) -> m b
+bind join x f = join (f <$> x)

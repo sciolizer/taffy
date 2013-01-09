@@ -290,13 +290,12 @@ class Level level where
   -- If the set becomes empty as a result, the solver will begin backjumping.
   shrinkVar :: (Ord a) => Var constraint a -> a -> ReadAssign level constraint ()
 
-  {-
   -- | Constrains a set of variables.
   newConstraint
-    :: constraint
+    :: Maybe String
+    -> constraint
     -> ReadAssign level constraint Bool -- ^ Constraint testing function. Should return False only when the constraint can no longer be satisfied. It should call 'setVar' or 'shrinkVar' when it can make a deduction.
     -> New level constraint ()
-    -}
 
 instance Eq NameAndIdentity where (==) = (==) `on` identity
 instance Ord NameAndIdentity where compare = compare `on` identity
@@ -355,13 +354,13 @@ instance (Ord c) => Ord (Constraint l c) where compare = compare `on` constraint
 instance Show (Constraint l c) where show = show . constraintIdentity
 
 -- | Creates a new constraint.
-newConstraint
+newConstraint'
   -- todo: put type class constraints here indicating New l c is a monad
   :: Maybe String -- ^ optional name
-  -> constraint -- ^ constraint
-  -> ReadAssign l constraint Bool -- ^ resolver
-  -> New l constraint ()
-newConstraint mbName c resolve = undefined {- do
+  -> c -- ^ constraint
+  -> ReadAssign l c Bool -- ^ resolver
+  -> New l c (Constraint l constraint)
+newConstraint' mbName c resolve = undefined {- do
   name <- mkName mbName "constraint"
   let collectable = return False -- todo: make depend on values of variables
   let c = Constraint name (Just c) (return False)
@@ -543,6 +542,11 @@ solve learner definition = undefined {- do
   return (completed, ret)
   -}
 
+-- actually, it probably makes more sense to do the wiring on CREATION
+-- of a clause... this way, there can be a single pathway for lining things up.
+-- instance constraints when they are created, abstract constraints when
+-- they are created. of course this means I will need to make
+-- untypedAbstractVar, but I think I would have needed to do that anyway
 attach :: (Ord c) => Constraint l c -> IO ()
 attach c = undefined {- mapM_ insert . S.toList . constraintVars $ c where
   insert v = modifyIORef (varConstraints v) (S.insert c)
@@ -663,6 +667,23 @@ instance Level Abstract where
           NewInstance $ tell ([untype var], [])
           return (VarInstance var)
     return (VarAbstract u', iv)
+
+  newConstraint mbName c resolve = NewAbstract z where
+    z = do
+      -- what I end up doing with fixme will probably depend on whether
+      -- I can successfully implement newConstraint' or not
+      (c',fixme) <- unNewAbstract (newConstraint' mbName c resolve)
+      tell [c']
+      return ((), return () {- is this right? -})
+    unNewAbstract (NewAbstract x) = x
+
+asdf :: (a -> New Abstract c b) -> New Abstract c (a -> b)
+asdf f = NewAbstract (fdsa f)
+
+fdsa :: (a -> New Abstract c b) -> AbstractInner c (a -> b, New Instance c (a -> b))
+fdsa = undefined
+
+instance Monad (New Abstract c)
 
 internalBug = error
 
