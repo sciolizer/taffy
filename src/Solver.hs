@@ -374,13 +374,13 @@ nextId = do
     modifyIORef ref (+1)
     return ret
 
-unNewInstance (NewInstance m) = undefined -- m
 
 instance Functor (New Instance c)
 instance Applicative (New Instance c)
 instance Monad (New Instance c) where
   return x = NewInstance (return x)
-  (NewInstance x) >>= f = NewInstance (unNewInstance . f =<< x)
+  (NewInstance x) >>= f = NewInstance (unNewInstance . f =<< x) where
+    unNewInstance (NewInstance m) = m
 instance MonadIO (New Instance c) where
   liftIO = NewInstance . liftIO
 instance MonadReader NewContext (New Instance c) where
@@ -393,10 +393,9 @@ runNewInstance
   :: New Instance c a
   -> NewContext
   -> IO (a, [UntypedInstanceVar c], [Constraint Instance c])
-runNewInstance (NewInstance m) c = undefined {- do
+runNewInstance (NewInstance m) c = do
   (ret, (vars, cs)) <- evalRWST m c ()
   return (ret, vars, cs)
-  -}
 
 tellUntypedInstanceVar :: UntypedInstanceVar c -> New Instance c ()
 tellUntypedInstanceVar var = NewInstance $ tell ([var], [])
@@ -419,21 +418,6 @@ abstractIO :: IO a -> New Abstract c a
 abstractIO m = NewAbstract ((,) <$> liftIO m <*> return (liftIO m))
 
 {-
-instance Monad (New Abstract c) where
-  return x = liftAbstract (return x)
-  (NewAbstract inner) >>= f = undefined NewAbstract fst snd where
-    fst = innerFst . f =<< x
-    innerFst (NewAbstract z _) = z
-    -- the problem is that I changed NewAbstract to work with a different r and w
-    -- (IORef Int and [Constraint Abstract c]) from the one used in NewInstance
-    -- (NewContext and ([UntypedInstanceVar c], [Constraint Instance c]))
-    snd b = blah -- ($ b) . innerSnd . f =<< y =<< NewInstance x
-    innerSnd (NewAbstract _ z) = z
-    -}
-
-blah = undefined
-
-{-
 instance MonadReader NewContext (New Abstract c) where
   ask = undefined -- ask = liftAbstract . ask
   local = undefined -- local f (NewAbstract m n) = NewAbstract (local f m) (\_ -> local f n)
@@ -443,13 +427,12 @@ runNewAbstract
   :: New Abstract c a
   -> IORef Int
   -> IO (a, New Instance c a, [Constraint Abstract c])
-runNewAbstract (NewAbstract inner) c = undefined {- do
-  (ret, constraints) <- evalRWST fst c ()
+runNewAbstract (NewAbstract inner) c = do
+  ((ret, inst), constraints) <- evalRWST inner c ()
   let instMaker = do
-        i <- Instantiation <$> newUnique
-        local (set newContextInstantiation (Just i)) (snd ret)
+        i <- Instantiation <$> liftIO newUnique
+        local (set newContextInstantiation (Just i)) inst
   return (ret, instMaker, constraints)
-  -}
 
 deriving instance Applicative (Init c)
 deriving instance Functor (Init c)
