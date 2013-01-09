@@ -152,19 +152,16 @@ data Constraint l c = Constraint {
   -- on the variable which created it.
   constraintCollectable :: IO Bool }
 
-type NewInstance c =
-  RWST NewContext ([UntypedInstanceVar c], [Constraint Instance c]) () IO
-
 type AbstractInner c = RWST (IORef Int) [Constraint Abstract c] () IO
 type InstanceInner c = RWST NewContext ([UntypedInstanceVar c], [Constraint Instance c]) () IO
 
 -- | A monad for creating variables and constraints.
 data New level constraint a where
   NewAbstract
-    :: AbstractInner c (a, New Instance c a)
+    :: AbstractInner constraint (a, New Instance constraint a)
     -> New Abstract constraint a
   NewInstance
-    :: InstanceInner c a
+    :: InstanceInner constraint a
     -> New Instance constraint a
 
 data NewContext = NewContext {
@@ -406,11 +403,22 @@ runNewInstance (NewInstance m) c = undefined {- do
 tellUntypedInstanceVar :: UntypedInstanceVar c -> New Instance c ()
 tellUntypedInstanceVar var = NewInstance $ tell ([var], [])
 
-liftAbstract :: NewInstance c a -> New Abstract c a
-liftAbstract m = undefined -- NewAbstract m (\_ -> NewInstance m)
+instance Functor (New Abstract c) where
+  fmap f (NewAbstract m) = NewAbstract (fmap g m) where
+    g (x, y) = (f x, fmap f y)
 
-instance Functor (New Abstract c)
-instance Applicative (New Abstract c)
+instance Applicative (New Abstract c) where
+  pure x = NewAbstract (pure (x, pure x))
+  (NewAbstract f) <*> (NewAbstract x) = NewAbstract pair where
+    pair = (,) <$> (fst <$> f <*> (fst <$> x)) <*> starstar (snd <$> f) (snd <$> x)
+    starstar :: (Applicative f, Applicative g) => f (g (a -> b)) -> f (g a) -> f (g b)
+    starstar f x = fmap (<*>) f <*> x
+
+-- | Lifts an IO action into New Abstract. For New Instance, just
+-- use 'liftIO'.
+abstractIO :: IO a -> New Abstract c a
+abstractIO m = NewAbstract ((,) <$> liftIO m <*> return (liftIO m))
+
 {-
 instance Monad (New Abstract c) where
   return x = liftAbstract (return x)
@@ -425,9 +433,6 @@ instance Monad (New Abstract c) where
     -}
 
 blah = undefined
-
-abstractIO :: IO a -> New Abstract c a
-abstractIO = undefined
 
 {-
 instance MonadReader NewContext (New Abstract c) where
@@ -635,31 +640,28 @@ pop set  = do
   -}
 
 instance Level Abstract where
-  newVar mbName values = undefined {- NewAbstract undefined {- a -} undefined {- i -} where
-    a = do
-      name <- mkName mbName "abstract var"
-      vals <- orderValues values
-      state <- liftIO . newIORef $ AbstractVarState M.empty M.empty
-      -- tellAbstractvar ret -- don't think this is actually necessary
-      return . VarAbstract . AbstractVar state $ VarCommon name vals
-    i a = do
-      var <- case a of
-               VarAbstract u' -> do
-                 name <- do
-                   id <- nextId
-                   return . (("instance " ++ id ++ " of ") ++) . name . _varCommonIdentity . _abstractVarCommon $ u'
-                 identity <- liftIO newUnique
-                 state <- liftIO . newIORef . InstanceVarState . M.keysSet $ values
-                 let ret = InstanceVar (Just undefined {- u' -}) undefined {- state -} (set varCommonIdentity (NameAndIdentity name identity) (_abstractVarCommon undefined)) -- a))
-                 mbInst <- ask
-                 liftIO $ case mbInst of
-                   Nothing -> return ()
-                   Just inst -> modifyIORef undefined {- u' -} . over instances . M.insert inst $ ret
-                 return ret
-               VarInstance _ -> internalBug "tried to instantiate an instance variable"
-      NewInstance $ tell [Left (untype var)]
-      return (VarInstance var)
-      -}
+  newVar mbName values = NewAbstract $ do
+    avName <- mkName mbName "abstract var"
+    vals <- liftIO $ orderValues values
+    state <- liftIO . newIORef $ AbstractVarState M.empty M.empty
+    -- tellAbstractvar ret -- don't think this is actually necessary
+    let u' = AbstractVar state $ VarCommon avName vals
+    let iv = do
+          var <- do
+            ivName <- do
+              id <- nextId
+              return . (("instance " ++ show id ++ " of ") ++) . name . _varCommonIdentity . _abstractVarCommon $ u'
+            identity <- liftIO newUnique
+            state <- liftIO . newIORef . InstanceVarState . M.keysSet $ values
+            let ret = InstanceVar (Just undefined {- u' -}) undefined {- state -} (set varCommonIdentity (NameAndIdentity ivName identity) (_abstractVarCommon undefined)) -- a))
+            mbInst <- view newContextInstantiation
+            liftIO $ case mbInst of
+              Nothing -> throwIO . userError . internalBug $ "no instantiation for instantiated variable"
+              Just inst -> modifyIORef undefined {- u' -} . over instances . M.insert inst $ ret
+            return ret
+          NewInstance $ tell ([untype var], [])
+          return (VarInstance var)
+    return (VarAbstract u', iv)
 
 internalBug = error
 
