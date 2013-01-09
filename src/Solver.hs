@@ -242,6 +242,7 @@ data AssignmentFrame c = AssignmentFrame {
 makeLenses ''Var
 makeLenses ''VarCommon
 makeLenses ''AbstractVarState
+makeLenses ''InstanceVarState
 makeLenses ''SolveState
 makeLenses ''SolveContext
 makeLenses ''AssignmentFrame
@@ -481,21 +482,20 @@ modifyInstanceVar iv mod = undefined {- do
   dirtyVar iv orig
   -}
 
-dirtyVar :: Var c a -> S.Set a -> ReadAssign Instance c ()
-dirtyVar iv orig = undefined {- ReadAssign $ do
+dirtyVar :: (Ord a) => InstanceVar c a -> S.Set a -> ReadAssign Instance c ()
+dirtyVar iv orig = ReadAssign $ do
   let ref = _instanceVarState iv
-  candidates <- liftIO $ _candidates <$> readIORef ref
-  when (candidates /= orig) $ do
+  cs <- liftIO $ _candidates <$> readIORef ref
+  when (cs /= orig) $ do
   let internalBug = error
   let effect =
-        case S.toList candidates of
+        case S.toList cs of
           [v] -> do
-            case lookup v (_values . varCommon $ iv) of
+            case lookup v (_varCommonValues . _instanceVarCommon $ iv) of
               Nothing -> internalBug "one of candidates is invalid"
               Just x -> x
           _ -> return ()
-  tell [Assignment (untype iv) (effect iv) (modifyIORef ref (set candidates orig))]
-  -}
+  tell [Assignment (untype iv) effect (modifyIORef ref (set candidates orig))]
 
 instance MonadReader (SolveContext c) (Solve c) where
   -- ask :: Solve c (SolveContext c)
