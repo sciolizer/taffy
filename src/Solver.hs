@@ -1,3 +1,4 @@
+{-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
@@ -268,7 +269,7 @@ makeLenses ''NewContext
 -- solver will sometimes do a dry run on the side effects of multiple values,
 -- so that it can give priority to assignments producing fewer new variables
 -- and constraints.
-type Values constraint a = M.Map a (New Instance constraint ())
+type Values constraint a = M.Map a (Var constraint a -> New Instance constraint ())
 
 class Level level where
   -- | Creates an new variable.
@@ -317,13 +318,14 @@ mkName mbName s = do
 orderValues
   :: Values c a
   -> IO [(a, New Instance c ())]
-orderValues values = z where
+orderValues values = undefined {- z where
   z = map snd . sortBy (compare `on` fst) <$> mapM varCount (M.toList values)
   varCount (a, maker) = do
     stubState <- NewContext (return False) Nothing <$> newIORef 0
     ((), newVars, _newConstraints) <- runNewInstance maker stubState
     cost <- product <$> mapM (\x -> length <$> untypedInstanceVarValues x) newVars
     return (cost :: Int, (a, maker))
+    -}
 
 varCommon (VarAbstract av) = _abstractVarCommon av
 varCommon (VarInstance iv) = _instanceVarCommon iv
@@ -334,7 +336,9 @@ varName = name . _varCommonIdentity . varCommon
 
 instance Eq (Var c a) where (==) = (==) `on` _varCommonIdentity . varCommon
 instance Ord (Var c a) where compare = compare `on` _varCommonIdentity . varCommon
-instance Show (Var c a) where show = show . _varCommonIdentity . varCommon
+-- better to let the client determine the show instance. She can use
+-- varName if she wants
+-- instance Show (Var c a) where show = show . _varCommonIdentity . varCommon
 
 instance Eq (UntypedInstanceVar c) where (==) = (==) `on` untypedInstanceVarIdentity
 instance Ord (UntypedInstanceVar c) where compare = compare `on` untypedInstanceVarIdentity
@@ -524,8 +528,9 @@ evalSolve (Solve m) context solveState = do
 solve
   :: (Ord constraint)
   => ([constraint] -> New Instance constraint ()) -- ^ Constraint learning function, for conflict-directed constraint learning. The head of the given list is the constraint which produced a contradiction.
-  -> Init constraint a -- ^ Problem definition. You should return the 'Ivar's that you plan on reading from (using 'readIvar') when a solution is found.
-  -> IO (Bool, a) -- ^ 'False' iff no solution exists. Values returned from 'readIvar' after solve completes are 'undefined' if 'False' is returned; otherwise they will be singleton sets containing the satisfying assignment.
+  -> Init constraint a -- ^ Problem definition. You should return the 'Var's that you plan on reading from (using 'readIvar') when a solution is found.
+  -> (a -> ReadAssign Instance constraint b) -- ^ solution reader
+  -> IO (Bool, b) -- ^ 'False' iff no solution exists. Values returned from 'readIvar' after solve completes are 'undefined' if 'False' is returned; otherwise they will be singleton sets containing the satisfying assignment.
 solve learner definition = undefined {- do
   (ret, check, newstate, _avars, ivars, constraints) <- runInit definition
   mapM_ attach constraints
