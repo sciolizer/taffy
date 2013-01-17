@@ -341,7 +341,10 @@ orderValues values = z where
   varCount (a, maker) = do
     stubState <- NewContext (return False) Nothing <$> newIORef 0
     -- todo: use assgnments in consideration of order
-    stubVar <- undefined
+    stubValues <- newIORef (M.keysSet values)
+    stubConstraints <- newIORef S.empty
+    u <- newUnique
+    let stubVar = VarInstance (InstanceVar Nothing stubValues stubConstraints (VarCommon (NameAndIdentity "stub variable" u) (M.toList values)))
     ((), satisfiable, newVars, _newConstraints, _assngments) <- runNewInstance (maker stubVar) stubState
     cost <- product <$> mapM (\x -> length <$> untypedInstanceVarValues x) newVars
     return ((cost :: Int, satisfiable), (a, maker))
