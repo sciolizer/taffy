@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE RankNTypes #-}
@@ -73,6 +74,28 @@ import Data.Maybe
 import qualified Data.Set as S
 import Data.Unique
 
+-- | Candidates values to be assigned to a variable
+-- are given as the keys of the map. The associated
+-- value is any side effect you want to happen when the variable is assigned.
+--
+-- Although any IO action can be put into the side effect, its main
+-- purpose is to create new variables and new constraints on those variables.
+-- For example, if your problem has, conceptually, a variable whose value
+-- is some unknown list, you can create a variable which represents the two
+-- possible constructors for the list: Cons and Nil. You can define the
+-- side effect for the Cons case as creating two new variables:
+-- one for the value in the head and the other for the constructor of the
+-- tail.
+--
+-- You should not rely on the invocation of the side effect as an indication
+-- that an instance variable has actually been assigned that value. The
+-- solver will sometimes do a dry run on the side effects of multiple values,
+-- so that it can give priority to assignments producing fewer new variables
+-- and constraints.
+type Values constraint a = M.Map a (ValueEffect constraint a)
+
+type ValueEffect c a = Var c a -> New Instance c ()
+
 -- | Used both for vars and constraints!
 data NameAndIdentity = NameAndIdentity {
   name :: String,
@@ -86,11 +109,11 @@ data VarCommon c a = VarCommon {
   -- be no more than y's product.
   -- (constraints generated is not a factor in ordering, since they
   -- don't actually make the problem larger)
-  _varCommonValues :: [(a, New Instance c ())] }
+  _varCommonValues :: [(a, ValueEffect c a)] }
 
 -- | An untyped container for both 'Avar's and 'Ivar's. Use it as an argument
 -- to the 'newConstraint' function.
-data Var constraint a
+data Var (constraint :: *) a
   = VarAbstract (AbstractVar constraint a)
   | VarInstance (InstanceVar constraint a)
 
@@ -109,7 +132,7 @@ data AbstractVar c a = AbstractVar {
 
   _abstractVarCommon :: VarCommon c a }
 
-data InstanceVar c a = InstanceVar {
+data InstanceVar (c :: *) a = InstanceVar {
   _instanceVarAbstractVar :: Maybe (AbstractVar c a, Instantiation),
 
   -- | If empty, problem is in conflict.
@@ -157,8 +180,11 @@ data Constraint l c = Constraint {
   -- on the variable which created it.
   constraintCollectable :: IO Bool }
 
-type AbstractInner c = RWST (IORef Int) [Constraint Abstract c] () IO
-type InstanceInner c = RWST NewContext ([UntypedInstanceVar c], [Constraint Instance c], [Assignment c]) Bool IO
+type AbstractInner c = RWST (IORef Int) [Constraint Abstract c] Satisfiable IO
+type InstanceInner c = RWST NewContext ([UntypedInstanceVar c], [Constraint Instance c], [Assignment c]) Satisfiable IO
+
+data Satisfiable = Satisfiable | Contradiction
+  deriving (Bounded, Enum, Eq, Ord, Read, Show)
 
 -- | A monad for creating variables and constraints.
 data New level constraint a where
@@ -215,7 +241,13 @@ data ReadAssignContext level c where
   InstanceReadAssignContext
     :: Constraint Instance c -> ReadAssignContext Instance c
   AbstractReadAssignContext
-    :: Instantiation -> Constraint Abstract c -> ReadAssignContext Abstract c
+    :: Instantiation -- nothing indicates we're in the process of creating a constraint
+    -> ReadAssignMode
+    -> Constraint Abstract c
+    -> ReadAssignContext Abstract c
+
+data ReadAssignMode = CreatingConstraint | RevisingConstraint
+  deriving (Bounded, Enum, Eq, Ord, Read, Show)
 
 data Assignment c = Assignment {
   assignmentVar :: UntypedInstanceVar c,
@@ -252,26 +284,6 @@ makeLenses ''SolveState
 makeLenses ''SolveContext
 makeLenses ''AssignmentFrame
 makeLenses ''NewContext
-
--- | Candidates values to be assigned to a variable
--- are given as the keys of the map. The associated
--- value is any side effect you want to happen when the variable is assigned.
---
--- Although any IO action can be put into the side effect, its main
--- purpose is to create new variables and new constraints on those variables.
--- For example, if your problem has, conceptually, a variable whose value
--- is some unknown list, you can create a variable which represents the two
--- possible constructors for the list: Cons and Nil. You can define the
--- side effect for the Cons case as creating two new variables:
--- one for the value in the head and the other for the constructor of the
--- tail.
---
--- You should not rely on the invocation of the side effect as an indication
--- that an instance variable has actually been assigned that value. The
--- solver will sometimes do a dry run on the side effects of multiple values,
--- so that it can give priority to assignments producing fewer new variables
--- and constraints.
-type Values constraint a = M.Map a (Var constraint a -> New Instance constraint ())
 
 class Level level where
   -- | Creates an new variable.
@@ -318,16 +330,21 @@ mkName mbName s = do
   return (NameAndIdentity name u)
 
 orderValues
-  :: Values c a
-  -> IO [(a, New Instance c ())]
-orderValues values = undefined {- z where
-  z = map snd . sortBy (compare `on` fst) <$> mapM varCount (M.toList values)
+  :: (MonadState Satisfiable m, MonadIO m, Functor m)
+  => Values c a
+  -> m [(a, ValueEffect c a)]
+orderValues values = z where
+  z = do
+    (cs, amakers) <- unzip . sortBy (compare `on` fst) <$> liftIO (mapM varCount (M.toList values))
+    when (contradiction (map snd cs)) $ put Contradiction
+    return amakers
   varCount (a, maker) = do
     stubState <- NewContext (return False) Nothing <$> newIORef 0
-    ((), newVars, _newConstraints) <- runNewInstance maker stubState
+    -- todo: use assgnments in consideration of order
+    stubVar <- undefined
+    ((), satisfiable, newVars, _newConstraints, _assngments) <- runNewInstance (maker stubVar) stubState
     cost <- product <$> mapM (\x -> length <$> untypedInstanceVarValues x) newVars
-    return (cost :: Int, (a, maker))
-    -}
+    return ((cost :: Int, satisfiable), (a, maker))
 
 varCommon (VarAbstract av) = _abstractVarCommon av
 varCommon (VarInstance iv) = _instanceVarCommon iv
@@ -394,6 +411,8 @@ nextId = do
     modifyIORef ref (+1)
     return ret
 
+contradiction :: [Satisfiable] -> Bool
+contradiction = any (== Contradiction)
 
 instance Functor (New Instance c)
 instance Applicative (New Instance c)
@@ -406,21 +425,23 @@ instance MonadIO (New Instance c) where
 instance MonadReader NewContext (New Instance c) where
   ask = NewInstance ask
   local f (NewInstance m) = NewInstance (local f m)
+instance IdSource (InstanceInner c) where
+  idSource = asks _newContextNext
 instance IdSource (New Instance c) where
-  idSource = NewInstance (asks _newContextNext)
+  idSource = NewInstance $ asks _newContextNext
+instance MonadState Satisfiable (New Instance c) where
+  state f = NewInstance (state f)
 
 runNewInstance
   :: New Instance c a
   -> NewContext
   -- bool indicates if problem became unsatisfiable because of a newly
   -- constructed constraint that could not be satisfied
-  -> IO (a, Bool, [UntypedInstanceVar c], [Constraint Instance c])
+  -- true indicates the problem is still satisfiable
+  -> IO (a, Satisfiable, [UntypedInstanceVar c], [Constraint Instance c], [Assignment c])
 runNewInstance (NewInstance m) c = do
-  (ret, b, (vars, cs)) <- runRWST m c ()
-  return (ret, b, vars, cs)
-
-tellUntypedInstanceVar :: UntypedInstanceVar c -> New Instance c ()
-tellUntypedInstanceVar var = NewInstance $ tell ([var], [])
+  (ret, b, (vars, cs, asgns)) <- runRWST m c Satisfiable
+  return (ret, b, vars, cs, asgns)
 
 instance Functor (New Abstract c) where
   fmap f (NewAbstract m) = NewAbstract (fmap g m) where
@@ -448,13 +469,13 @@ instance MonadReader NewContext (New Abstract c) where
 runNewAbstract
   :: New Abstract c a
   -> IORef Int
-  -> IO (a, New Instance c a, [Constraint Abstract c])
+  -> IO (a, Satisfiable, New Instance c a, [Constraint Abstract c])
 runNewAbstract (NewAbstract inner) c = do
-  ((ret, inst), constraints) <- evalRWST inner c ()
+  ((ret, inst), s, constraints) <- runRWST inner c Satisfiable -- check bool!
   let instMaker = do
         i <- Instantiation <$> liftIO newUnique
         local (set newContextInstantiation (Just i)) inst
-  return (ret, instMaker, constraints)
+  return (ret, s, instMaker, constraints)
 
 deriving instance Applicative (Init c)
 deriving instance Functor (Init c)
@@ -464,19 +485,22 @@ deriving instance MonadWriter [Constraint Abstract c] (Init c)
 
 runInit
   :: Init c a
-  -> IO (a, IORef Int, [UntypedInstanceVar c], [Constraint Instance c], [Constraint Abstract c])
-runInit (Init m) = do
+  -> IO (a, Bool, IORef Int, [UntypedInstanceVar c], [Constraint Instance c], [Constraint Abstract c])
+runInit (Init m) = undefined {- do
   n <- newIORef 0
   let context = NewContext (return False) Nothing n
-  ((a, cas), vars, cis) <- runNewInstance (evalRWST m n ()) context
-  return (a, n, vars, cis, cas)
+  ((a, cas), b, vars, cis) <- runNewInstance (evalRWST m n ()) context
+  return (a, b, n, vars, cis, cas)
+  -}
 
 -- | Groups a collection of abstract vars and constraints into
 -- one, so that the pattern can be instantiated multiple times.
 group :: New Abstract constraint a -> Init constraint (New Instance constraint a)
 group m = do
   ref <- Init ask
-  (_, ret, cs) <- liftIO $ runNewAbstract m ref
+  -- should not break on contradiction, since this group
+  -- might never be used
+  (_, _satisfiable, ret, cs) <- liftIO $ runNewAbstract m ref
   tell cs
   return ret
 
@@ -493,9 +517,10 @@ runReadAssignInstance (ReadAssign m) c = evalRWST m (InstanceReadAssignContext c
 runReadAssignAbstract
   :: ReadAssign Abstract c a
   -> Instantiation
+  -> ReadAssignMode
   -> Constraint Abstract c
   -> IO (a, [Assignment c])
-runReadAssignAbstract (ReadAssign m) i c = evalRWST m (AbstractReadAssignContext i c) ()
+runReadAssignAbstract (ReadAssign m) i ram c = evalRWST m (AbstractReadAssignContext i ram c) ()
 
 modifyInstanceVar
   :: (Ord a)
@@ -521,7 +546,7 @@ dirtyVar iv orig = ReadAssign $ do
           [v] -> do
             case lookup v (_varCommonValues . _instanceVarCommon $ iv) of
               Nothing -> internalBug "one of candidates is invalid"
-              Just x -> x
+              Just eff -> eff (VarInstance iv)
           _ -> return ()
   tell [Assignment (untypeInstanceVar iv) effect (writeIORef ref orig)]
 
@@ -620,7 +645,8 @@ propagateEffects as = do
   contradiction <- any null <$> liftIO (mapM (untypedInstanceVarValues . assignmentVar) as)
   if contradiction then jumpback else do
   -- create new vars and constraints from the assignments made
-  (newVars, newConstraints) <- runEffects as
+  (sat, newVars, newConstraints) <- runEffects as
+  if not sat then jumpback else do
   debug $ "generated " ++ show (length newVars) ++ " new vars and " ++ show (length newConstraints) ++ " new constraints"
   unassignedVars %= S.union (S.fromList newVars)
   unrevisedInstanceConstraints %= S.union (S.fromList newConstraints)
@@ -636,15 +662,16 @@ propagateEffects as = do
         unrevisedAbstractConstraints %= S.union (S.mapMonotonic (,inst) acs)
   loop
 
-runEffects :: [Assignment c] -> Solve c ([UntypedInstanceVar c], [Constraint Instance c])
-runEffects as = do
+runEffects :: [Assignment c] -> Solve c (Bool, [UntypedInstanceVar c], [Constraint Instance c])
+runEffects as = undefined {- do
   nextIdRef <- view solveNext
   liftIO $ do
     -- todo: change collectable to be dependent on whether
     -- the instigating variable has multiple candidate values.
     let context = NewContext (return False) Nothing nextIdRef
     out <- mapM ((flip runNewInstance context) . assignmentEffect) as
-    return . (\(vss,css) -> (concat vss, concat css)) . unzip . map (\((),v,c) -> (v,c)) $ out
+    return . (\(bs,vss,css) -> (all id bs, concat vss, concat css)) . unzip3 . map (\((),b,v,c) -> (b,v,c)) $ out
+    -}
 
 -- For some reason ghc can't infer this type.
 pop :: MonadState s m => Simple Lens s (S.Set a) -> m (Maybe a)
@@ -658,7 +685,7 @@ pop set  = do
 instance Level Abstract where
   newVar mbName values = NewAbstract $ do
     avName <- mkName mbName "abstract var"
-    vals <- liftIO $ orderValues values
+    vals <- orderValues values
     instances <- liftIO $ newIORef M.empty
     constraints <- liftIO $ newIORef S.empty
     -- tellAbstractvar ret -- don't think this is actually necessary
@@ -678,7 +705,7 @@ instance Level Abstract where
             let ret = InstanceVar (Just (u', inst)) candidates constraints (set varCommonIdentity (NameAndIdentity ivName identity) (_abstractVarCommon u'))
             liftIO . modifyIORef (_abstractVarInstances u') . M.insert inst $ ret
             return ret
-          NewInstance $ tell ([untypeInstanceVar var], [])
+          NewInstance $ tell ([untypeInstanceVar var], [], [])
           return (VarInstance var)
     return (VarAbstract u', iv)
 
@@ -694,7 +721,8 @@ instance Level Abstract where
     -- its ok to ignore when _b is False (the pattern might never
     -- be instantiated), and when _assgns is not null (the assignments
     -- are for dummy variables anyway)
-    (_b, _assgns) <- liftIO $ runReadAssignAbstract resolve Nothing c'
+    i <- Instantiation <$> liftIO newUnique
+    (_b, _assgns) <- liftIO $ runReadAssignAbstract resolve i CreatingConstraint c'
     return ((), return () {- is this right? -})
 
 internalBug = error
@@ -702,12 +730,12 @@ internalBug = error
 instance Level Instance where
   newVar mbName values = do
     name <- mkName mbName "instance var"
+    vals <- orderValues values
     ret <- liftIO $ do
-      vals <- orderValues values
       candidates <- newIORef . M.keysSet $ values
       constraints <- newIORef S.empty
       return $ InstanceVar Nothing candidates constraints (VarCommon name vals)
-    tellUntypedInstanceVar (untypeInstanceVar ret)
+    NewInstance $ tell ([untypeInstanceVar ret], [], [])
     return (VarInstance ret)
 
   -- readIvar :: Ivar constraint a -> IO (S.Set a)
@@ -732,7 +760,7 @@ instance Level Instance where
     -- I suppose if there's no instantiation, readVar can just return ALL
     -- values, and the setVar and shrinkVar are no-ops
     (b, assgns) <- liftIO $ runReadAssignInstance resolve c'
-    when (not b) $ put False -- newly created constraint is unsatisfiable
+    when (not b) $ put Contradiction
     tell ([], [c'], assgns)
 
 illegalUseOfAbstractVariable action va = liftIO . throwIO . userError . illegalArgument $ "cannot " ++ action ++ " abstract variable " ++ (name . _varCommonIdentity . _abstractVarCommon $ va) ++ " when inside 'ReadAssign Instance constraint' monad" where
