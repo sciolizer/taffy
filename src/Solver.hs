@@ -158,6 +158,7 @@ type Constraints l c = S.Set (Constraint l c)
   -}
 
 data UntypedAbstractVar c = UntypedAbstractVar {
+  untypedAbstractVarIdentity :: NameAndIdentity,
   untypedAbstractVarAbstractConstraints :: IORef (Constraints Abstract c) }
 
 -- | An instance variable with the type stripped, so that it can
@@ -245,16 +246,16 @@ newtype ReadAssign level constraint a = ReadAssign (RWST (ReadAssignContext leve
   -- if level is Abstract, read context with be just the instantiation.
 
 -- | Injects current constraint into given var
-type Injector c = UntypedInstanceVar c -> IO ()
+type Injector untyped c = untyped c -> IO ()
 
 data ReadAssignContext level c where
   InstanceReadAssignContext
-    :: Injector c
+    :: Injector UntypedInstanceVar c
     -> ReadAssignContext Instance c
   AbstractReadAssignContext
-    :: Instantiation -- nothing indicates we're in the process of creating a constraint
-    -> ReadAssignMode
-    -> Constraint Abstract c
+    :: Instantiation
+    -> ReadAssignMode -- todo: is this necessary?
+    -> Injector UntypedAbstractVar c
     -> ReadAssignContext Abstract c
 
 data ReadAssignMode = CreatingConstraint | RevisingConstraint
@@ -374,6 +375,12 @@ instance Ord (Var c a) where compare = compare `on` _varCommonIdentity . varComm
 -- varName if she wants
 -- instance Show (Var c a) where show = show . _varCommonIdentity . varCommon
 
+instance Eq (InstanceVar constraint a) where (==) = (==) `on` _varCommonIdentity . _instanceVarCommon
+instance Ord (InstanceVar constraint a) where compare = compare `on` _varCommonIdentity . _instanceVarCommon
+
+instance Eq (AbstractVar constraint a) where (==) = (==) `on` _varCommonIdentity . _abstractVarCommon
+instance Ord (AbstractVar constraint a) where compare = compare `on` _varCommonIdentity . _abstractVarCommon
+
 instance Eq (UntypedInstanceVar c) where (==) = (==) `on` untypedInstanceVarIdentity
 instance Ord (UntypedInstanceVar c) where compare = compare `on` untypedInstanceVarIdentity
 instance Show (UntypedInstanceVar c) where show = show . untypedInstanceVarIdentity
@@ -389,7 +396,11 @@ untypeInstanceVar iv = UntypedInstanceVar ni setters constraints parent where
   parent = first untypeAbstractVar <$> _instanceVarAbstractVar iv
 
 untypeAbstractVar :: AbstractVar c a -> UntypedAbstractVar c
-untypeAbstractVar av = UntypedAbstractVar (_abstractVarAbstractConstraints av)
+untypeAbstractVar av = UntypedAbstractVar (_varCommonIdentity $ _abstractVarCommon av) (_abstractVarAbstractConstraints av)
+
+instance Eq (UntypedAbstractVar c) where (==) = (==) `on` untypedAbstractVarIdentity
+instance Ord (UntypedAbstractVar c) where compare = compare `on` untypedAbstractVarIdentity
+instance Show (UntypedAbstractVar c) where show = show . untypedAbstractVarIdentity
 
 instance (Eq c) => Eq (Constraint l c) where (==) = (==) `on` constraintIdentity
 instance (Ord c) => Ord (Constraint l c) where compare = compare `on` constraintIdentity
@@ -531,31 +542,35 @@ runReadAssignInstance
   -> Constraint Instance c
   -> IO (a, [Assignment c])
 runReadAssignInstance (ReadAssign m) c = do
-  let inject uiv = do
-        let modifier = modifyIORef (untypedInstanceVarInstanceConstraints uiv)
-        modifier (S.insert c)
-        modifyIORef (constraintUninject c) (modifier (S.delete c) >>)
-        -- since we are revising or creating an instance constraint,
-        -- we don't need to inject this constraint into the corresponding
-        -- abstract variable
-        {-
-        case untypedInstanceVarAbstractVar uiv of
-          Nothing -> return ()
-          Just ((UntypedAbstractVar constraintsRef), i) -> do
-            
-            -}
+  let inject = makeInjector untypedInstanceVarInstanceConstraints c
   evalRWST m (InstanceReadAssignContext inject) ()
 
-askInjector :: ReadAssign Instance c (Injector c)
-askInjector = ReadAssign (asks (\(InstanceReadAssignContext c) -> c))
+askInstanceInjector :: ReadAssign Instance c (Injector UntypedInstanceVar c)
+askInstanceInjector = ReadAssign (asks getInjector) where
+  getInjector (InstanceReadAssignContext i) = i
 
 runReadAssignAbstract
-  :: ReadAssign Abstract c a
+  :: (Ord c)
+  => ReadAssign Abstract c a
   -> Instantiation
   -> ReadAssignMode
   -> Constraint Abstract c
   -> IO (a, [Assignment c])
-runReadAssignAbstract (ReadAssign m) i ram c = evalRWST m (AbstractReadAssignContext i ram c) ()
+runReadAssignAbstract (ReadAssign m) i ram c = do
+  let inject = makeInjector untypedAbstractVarAbstractConstraints c
+  evalRWST m (AbstractReadAssignContext i ram inject) ()
+
+makeInjector :: (Ord c) => (untyped c -> IORef (Constraints l c)) -> Constraint l c -> Injector untyped c
+makeInjector getConstraints c var = do
+  let modifier = modifyIORef (getConstraints var)
+  modifier (S.insert c)
+  modifyIORef (constraintUninject c) (modifier (S.delete c) >>)
+
+askAbstractInjector :: ReadAssign Abstract c (Injector UntypedAbstractVar c)
+askAbstractInjector = ReadAssign (asks getInjector) where
+  getInjector (AbstractReadAssignContext _ _ i) = i
+
+askInstantiation = ReadAssign (asks (\(AbstractReadAssignContext i _ _) -> i))
 
 modifyInstanceVar
   :: (Ord a)
@@ -760,6 +775,22 @@ instance Level Abstract where
     (_b, _assgns) <- liftIO $ runReadAssignAbstract resolve i CreatingConstraint c'
     return ((), return () {- is this right? -})
 
+  readVar (VarAbstract av) = do
+    inject <- askAbstractInjector
+    inst <- askInstantiation
+    liftIO $ do
+      inject (untypeAbstractVar av)
+      instances <- readIORef (_abstractVarInstances av)
+      let croak = throwIO . userError
+      case M.lookup inst instances of
+        Nothing -> croak $ "attempted to read from wrong abstract var"
+        Just iv ->
+          case _instanceVarAbstractVar iv of
+            Nothing -> croak $ "internal bug: abstract var points to instance var, but reverse relationship does not exist"
+            Just (av',inst') | av' /= av -> croak "internal bug: abstract var points to instance var which points to a DIFFERENT abstract var"
+                             | inst /= inst' -> croak "internal bug: abstract var points to instance var but instance var's instantiation is different"
+                             | otherwise -> readIORef (_instanceVarCandidates iv)
+
 internalBug = error
 
 instance Level Instance where
@@ -775,7 +806,7 @@ instance Level Instance where
 
   -- readIvar :: Ivar constraint a -> IO (S.Set a)
   readVar (VarInstance iv) = do
-    inject <- askInjector
+    inject <- askInstanceInjector
     liftIO $ do
       -- inject current constraint into variable, so that we
       -- can refire this constraint when the variable changes
