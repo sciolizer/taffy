@@ -629,16 +629,6 @@ solve learner definition = undefined {- do
   return (completed, ret)
   -}
 
--- actually, it probably makes more sense to do the wiring on CREATION
--- of a clause... this way, there can be a single pathway for lining things up.
--- instance constraints when they are created, abstract constraints when
--- they are created. of course this means I will need to make
--- untypedAbstractVar, but I think I would have needed to do that anyway
-attach :: (Ord c) => Constraint l c -> IO ()
-attach c = undefined {- mapM_ insert . S.toList . constraintVars $ c where
-  insert v = modifyIORef (varConstraints v) (S.insert c)
-  -}
-
 -- loop :: Solve c Bool
 loop = undefined {- do
   mbc <- pop unrevisedConstraints
