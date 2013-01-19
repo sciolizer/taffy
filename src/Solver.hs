@@ -661,6 +661,7 @@ loop = undefined {- do
               loop
             (x:xs) -> choose x xs
     Just c -> do
+      -- todo: uninject constraint first
       (satisfiable, as) <- liftIO $ runReadWrite (constraintResolve c)
       assignedVars %= (reverse (map (\a -> AssignmentFrame (assignmentUndo a) [] False) as) ++)
       if not satisfiable then jumpback else do
@@ -685,6 +686,7 @@ stepback (x:xs) = do
     (y:ys) -> choose y ys
 
 choose x xs = undefined {- do
+  -- todo: uninject constraint first
   ((), [a]) <- liftIO $ runReadWrite x
   assignedVars %= (AssignmentFrame (assignmentUndo a) xs True :)
   propagateEffects [a]
@@ -797,6 +799,7 @@ instance Level Abstract where
     (_b, _assgns) <- liftIO $ runReadWriteAbstract resolve i CreatingConstraint c'
     return ((), return () {- is this right? -})
 
+  -- todo: move this outside of the type class
   readVar (VarAbstract av) = do
     inject <- askAbstractInjector
     inst <- askInstantiation
@@ -835,6 +838,7 @@ instance Level Instance where
   getInstanceVar _ (VarInstance iv) = return iv
   getInstanceVar usage (VarAbstract va) = illegalUseOfAbstractVariable usage va
 
+  -- todo: move this outside of the type class
   newVar mbName values = do
     -- make name (shared but slightly different)
     name <- mkName mbName "instance var"
