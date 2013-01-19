@@ -178,7 +178,14 @@ data Constraint l c = Constraint {
 
   -- | False for problem clauses, True for learnt clauses, otherwise depends
   -- on the variable which created it.
-  constraintCollectable :: IO Bool }
+  constraintCollectable :: IO Bool,
+
+  -- | Removes this constraint from all variables that it was previously
+  -- being watched on. This should be called right before constraintResolve
+  -- is run. Maybe. It probably doesn't hurt to leave the injections in,
+  -- and it might make things faster to leave things as is.
+  -- This resets itself everytime it is run.
+  constraintUninject :: IORef (IO ()) }
 
 type AbstractInner c = RWST (IORef Int) [Constraint Abstract c] Satisfiable IO
 type InstanceInner c = RWST NewContext ([UntypedInstanceVar c], [Constraint Instance c], [Assignment c]) Satisfiable IO
@@ -237,9 +244,13 @@ newtype ReadAssign level constraint a = ReadAssign (RWST (ReadAssignContext leve
   -- if level is Instance, read context will be nothing
   -- if level is Abstract, read context with be just the instantiation.
 
+-- | Injects current constraint into given var
+type Injector c = UntypedInstanceVar c -> IO ()
+
 data ReadAssignContext level c where
   InstanceReadAssignContext
-    :: Constraint Instance c -> ReadAssignContext Instance c
+    :: Injector c
+    -> ReadAssignContext Instance c
   AbstractReadAssignContext
     :: Instantiation -- nothing indicates we're in the process of creating a constraint
     -> ReadAssignMode
@@ -296,7 +307,7 @@ class Level level where
   -- | Returns the values which are not currently in direct violation
   -- of a constraint. A singleton value indicates that the variable
   -- has been assigned.
-  readVar :: Var constraint a -> ReadAssign level constraint (S.Set a)
+  readVar :: (Ord a) => Var constraint a -> ReadAssign level constraint (S.Set a)
 
   -- | Removes all but the given value from the variable's set of
   -- candidate values. If the given value is already in violation of
@@ -310,7 +321,8 @@ class Level level where
 
   -- | Constrains a set of variables.
   newConstraint
-    :: Maybe String
+    :: (Ord constraint)
+    => Maybe String
     -> constraint
     -> ReadAssign level constraint Bool -- ^ Constraint testing function. Should return False only when the constraint can no longer be satisfied. It should call 'setVar' or 'shrinkVar' when it can make a deduction.
     -> New level constraint ()
@@ -393,7 +405,10 @@ newConstraint'
 newConstraint' mbName c resolve = do
   name <- mkName mbName "constraint"
   let collectable = return False -- todo: make depend on values of variables
-  let c' = Constraint name (Just c) resolve (return False)
+  uninject <- liftIO $ newIORef (return ())
+  let reset = writeIORef uninject reset
+  liftIO reset
+  let c' = Constraint name (Just c) resolve (return False) uninject
   -- the question is: can I add "current constraint" to the context of the
   -- ReadAssign monad? Will I always have a constraint available to put
   -- into the context?
@@ -488,13 +503,12 @@ deriving instance MonadWriter [Constraint Abstract c] (Init c)
 
 runInit
   :: Init c a
-  -> IO (a, Bool, IORef Int, [UntypedInstanceVar c], [Constraint Instance c], [Constraint Abstract c])
-runInit (Init m) = undefined {- do
+  -> IO (a, Satisfiable, IORef Int, [UntypedInstanceVar c], [Constraint Instance c], [Constraint Abstract c])
+runInit (Init m) = do
   n <- newIORef 0
   let context = NewContext (return False) Nothing n
-  ((a, cas), b, vars, cis) <- runNewInstance (evalRWST m n ()) context
+  ((a, cas), b, vars, cis, asgns) <- runNewInstance (evalRWST m n ()) context
   return (a, b, n, vars, cis, cas)
-  -}
 
 -- | Groups a collection of abstract vars and constraints into
 -- one, so that the pattern can be instantiated multiple times.
@@ -512,10 +526,28 @@ make = Init . lift
 
 -- runAssign :: Assign c a -> IO (a, [Assignment])
 runReadAssignInstance
-  :: ReadAssign Instance c a
+  :: (Ord c)
+  => ReadAssign Instance c a
   -> Constraint Instance c
   -> IO (a, [Assignment c])
-runReadAssignInstance (ReadAssign m) c = evalRWST m (InstanceReadAssignContext c) ()
+runReadAssignInstance (ReadAssign m) c = do
+  let inject uiv = do
+        let modifier = modifyIORef (untypedInstanceVarInstanceConstraints uiv)
+        modifier (S.insert c)
+        modifyIORef (constraintUninject c) (modifier (S.delete c) >>)
+        -- since we are revising or creating an instance constraint,
+        -- we don't need to inject this constraint into the corresponding
+        -- abstract variable
+        {-
+        case untypedInstanceVarAbstractVar uiv of
+          Nothing -> return ()
+          Just ((UntypedAbstractVar constraintsRef), i) -> do
+            
+            -}
+  evalRWST m (InstanceReadAssignContext inject) ()
+
+askInjector :: ReadAssign Instance c (Injector c)
+askInjector = ReadAssign (asks (\(InstanceReadAssignContext c) -> c))
 
 runReadAssignAbstract
   :: ReadAssign Abstract c a
@@ -742,7 +774,14 @@ instance Level Instance where
     return (VarInstance ret)
 
   -- readIvar :: Ivar constraint a -> IO (S.Set a)
-  readVar (VarInstance iv) = liftIO . readIORef . _instanceVarCandidates $ iv
+  readVar (VarInstance iv) = do
+    inject <- askInjector
+    liftIO $ do
+      -- inject current constraint into variable, so that we
+      -- can refire this constraint when the variable changes
+      -- next
+      inject (untypeInstanceVar iv)
+      readIORef . _instanceVarCandidates $ iv
 
   -- setVar :: (Ord a) => Ivar constraint a -> a -> Assign constraint ()
   setVar (VarInstance iv) v = modifyInstanceVar iv collapse where
