@@ -190,6 +190,10 @@ data Constraint l c = Constraint {
   -- This resets itself everytime it is run.
   constraintUninject :: IORef (IO ()) }
 
+data InstanceConstraint c
+  = InstanceConstraint (Constraint Instance c)
+  | InstantiatedConstraint (Constraint Abstract c) Instantiation
+
 type AbstractInner c = RWST (IORef Int) [Constraint Abstract c] Satisfiable IO
 -- todo: push satisfiable into the writer
 type InstanceInner c = RWST NewContext ([UntypedInstanceVar c], [Constraint Instance c], [Assignment c]) Satisfiable IO
@@ -283,8 +287,7 @@ data SolveContext c = SolveContext {
 data SolveState c = SolveState {
   _assignedVars :: [AssignmentFrame c], -- head is most recently assigned
   _unassignedVars :: S.Set (UntypedInstanceVar c),
-  _unrevisedInstanceConstraints :: Constraints Instance c,
-  _unrevisedAbstractConstraints :: S.Set (Constraint Abstract c, Instantiation),
+  _unrevisedConstraints :: S.Set (InstanceConstraint c),
   _learntInstanceConstraints :: S.Set (Constraint Instance c),
   _learntAbstractConstraints :: S.Set (Constraint Abstract c) }
 
@@ -429,6 +432,12 @@ newConstraint' mbName c resolve = do
   -- so... can I make a dummy constraint for use in the solve function?
   -- runDependencies c (bounded resolve) -- todo: inject constraint into relevant vars
   return c'
+
+uninject :: Constraint l c -> IO ()
+uninject c = join $ readIORef (constraintUninject c)
+
+deriving instance (Eq c) => Eq (InstanceConstraint c)
+deriving instance (Ord c) => Ord (InstanceConstraint c)
 
 class IdSource m where
   idSource :: m (IORef Int)
@@ -634,7 +643,7 @@ solve learner definition = undefined {- do
   -}
 
 -- loop :: Solve c Bool
-loop = undefined {- do
+loop = do
   mbc <- pop unrevisedConstraints
   debug $ "popped constraint: " ++ show mbc
   case mbc of
@@ -651,16 +660,15 @@ loop = undefined {- do
               unassignedVars %= S.insert v
               jumpback
             [_] -> do
-              assignedVars %= (AssignmentFrame nop [] False :)
+              assignedVars %= (AssignmentFrame (return ()) [] False :)
               loop
             (x:xs) -> choose x xs
-    Just c -> do
-      -- todo: uninject constraint first
-      (satisfiable, as) <- liftIO $ runReadWrite (constraintResolve c)
+    Just (InstanceConstraint c) -> do
+      liftIO $ uninject c
+      (satisfiable, as) <- liftIO $ runReadWriteInstance (constraintResolve c) c
       assignedVars %= (reverse (map (\a -> AssignmentFrame (assignmentUndo a) [] False) as) ++)
       if not satisfiable then jumpback else do
       propagateEffects as
-      -}
 
 -- jumpback :: (Ord c) => Solve c Bool
 jumpback = do
@@ -694,17 +702,17 @@ propagateEffects as = do
   if sat == Contradiction then jumpback else do
   debug $ "generated " ++ show (length newVars) ++ " new vars and " ++ show (length newConstraints) ++ " new constraints"
   unassignedVars %= S.union (S.fromList newVars)
-  unrevisedInstanceConstraints %= S.union (S.fromList newConstraints)
+  unrevisedConstraints %= S.union (S.fromList (map InstanceConstraint newConstraints))
   -- for each assignment made, re-run the constraints (instance and abstract)
   forM_ as $ \a -> do
     let uiv = assignmentVar a
     instanceConstraints <- liftIO . readIORef . untypedInstanceVarInstanceConstraints $ uiv
-    unrevisedInstanceConstraints %= S.union instanceConstraints
+    unrevisedConstraints %= S.union (S.mapMonotonic InstanceConstraint instanceConstraints)
     case untypedInstanceVarAbstractVar uiv of
       Nothing -> return ()
       Just (uav, inst) -> do
         acs <- liftIO . readIORef $ untypedAbstractVarAbstractConstraints uav
-        unrevisedAbstractConstraints %= S.union (S.mapMonotonic (,inst) acs)
+        unrevisedConstraints %= S.union (S.mapMonotonic (flip InstantiatedConstraint inst) acs)
   if null newAssignments then loop else propagateEffects newAssignments
 
 runEffects :: [Assignment c] -> Solve c (Satisfiable, [UntypedInstanceVar c], [Constraint Instance c], [Assignment c])
