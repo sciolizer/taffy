@@ -161,12 +161,14 @@ data UntypedAbstractVar c = UntypedAbstractVar {
   untypedAbstractVarIdentity :: NameAndIdentity,
   untypedAbstractVarAbstractConstraints :: IORef (Constraints Abstract c) }
 
+type UntypedValues c = [IO (Assignment c)]
+
 -- | An instance variable with the type stripped, so that it can
 -- be stored in homogoneous collections.
 data UntypedInstanceVar c = UntypedInstanceVar {
   untypedInstanceVarIdentity :: NameAndIdentity,
   -- | A sequence of calls to setVar for each remaining candidate.
-  untypedInstanceVarValues :: IO [IO (Assignment c)],
+  untypedInstanceVarValues :: IO (UntypedValues c),
   untypedInstanceVarInstanceConstraints :: IORef (Constraints Instance c),
   untypedInstanceVarAbstractVar :: Maybe (UntypedAbstractVar c, Instantiation) }
 
@@ -287,7 +289,7 @@ data SolveState c = SolveState {
 
 data AssignmentFrame c = AssignmentFrame {
   _frameUndo :: IO (),
-  _frameUntriedValues :: [IO (Assignment c)],
+  _frameUntriedValues :: UntypedValues c,
   _frameDecisionLevel :: Bool }
 
 makeLenses ''Var
@@ -656,7 +658,7 @@ loop = undefined {- do
       propagateEffects as
       -}
 
-jumpback :: (Ord c) => Solve c Bool
+-- jumpback :: (Ord c) => Solve c Bool
 jumpback = do
   vs <- use assignedVars
   let (pop,keep) = span (not . _frameDecisionLevel) vs
@@ -673,13 +675,12 @@ stepback (x:xs) = do
     [] -> stepback xs
     (y:ys) -> choose y ys
 
-choose x xs = undefined {- do
-  ((), [a]) <- liftIO $ runReadWriteInstance x
-  assignedVars %= (AssignmentFrame (assignmentUndo a) xs True :)
-  propagateEffects [a]
-  -}
+choose x xs = do
+  assignment <- liftIO x
+  assignedVars %= (AssignmentFrame (assignmentUndo assignment) xs True :)
+  propagateEffects [assignment]
 
-propagateEffects :: (Ord c) => [Assignment c] -> Solve c Bool
+-- propagateEffects :: (Ord c) => [Assignment c] -> Solve c Bool
 propagateEffects as = do
   -- check to see if any variables are now empty
   contradiction <- any null <$> liftIO (mapM (untypedInstanceVarValues . assignmentVar) as)
