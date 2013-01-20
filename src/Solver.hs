@@ -166,7 +166,7 @@ data UntypedAbstractVar c = UntypedAbstractVar {
 data UntypedInstanceVar c = UntypedInstanceVar {
   untypedInstanceVarIdentity :: NameAndIdentity,
   -- | A sequence of calls to setVar for each remaining candidate.
-  untypedInstanceVarValues :: IO [ReadWrite Instance c ()],
+  untypedInstanceVarValues :: IO [IO (Assignment c)],
   untypedInstanceVarInstanceConstraints :: IORef (Constraints Instance c),
   untypedInstanceVarAbstractVar :: Maybe (UntypedAbstractVar c, Instantiation) }
 
@@ -287,7 +287,7 @@ data SolveState c = SolveState {
 
 data AssignmentFrame c = AssignmentFrame {
   _frameUndo :: IO (),
-  _frameUntriedValues :: [ReadWrite Instance c ()],
+  _frameUntriedValues :: [IO (Assignment c)],
   _frameDecisionLevel :: Bool }
 
 makeLenses ''Var
@@ -386,7 +386,10 @@ untypeInstanceVar iv = UntypedInstanceVar ni setters constraints parent where
   candidates = readIORef (_instanceVarCandidates iv)
   setters = do
     cs <- candidates
-    return . map (setVar (VarInstance iv)) . filter (flip S.member cs) . map fst $ allValues
+    let setTo val = do
+          (_, _, assignment) <- changeInstanceVar (collapse val) iv
+          return assignment
+    return . map setTo . filter (flip S.member cs) . map fst $ allValues
   constraints = _instanceVarConstraints iv
   parent = first untypeAbstractVar <$> _instanceVarAbstractVar iv
 
@@ -572,34 +575,29 @@ modifyInstanceVar
   => (S.Set a -> S.Set a)
   -> InstanceVar c a
   -> ReadWrite level c ()
-modifyInstanceVar mod iv = do
-  orig <- liftIO $ do
-    let ref = _instanceVarCandidates iv
-    cs <- readIORef ref
-    writeIORef ref (mod cs)
-    return cs
-  dirtyVar iv orig
+modifyInstanceVar mod iv = ReadWrite $ do
+  (oldCandidates, newCandidates, assignment) <- liftIO $ changeInstanceVar mod iv
+  when (oldCandidates /= newCandidates) $ tell [assignment]
 
--- record (in the ReadWrite monad) that a particular assignment
--- has been made (which includes the affected variable, the undo
--- operation, and the side effect creations that come as a consequence
--- of the assignment).
--- Side effects are only recorded when the variable has been
--- reduced to a single value.
-dirtyVar :: (Level level, Ord a) => InstanceVar c a -> S.Set a -> ReadWrite level c ()
-dirtyVar iv orig = ReadWrite $ do
+changeInstanceVar
+  :: (Ord a)
+  => (S.Set a -> S.Set a)
+  -> InstanceVar c a
+  -> IO (S.Set a, S.Set a, Assignment c)
+changeInstanceVar mod iv = do
   let ref = _instanceVarCandidates iv
-  cs <- liftIO $ readIORef ref
-  when (cs /= orig) $ do
+  old <- readIORef ref
+  let new = mod old
   let internalBug = error
   let effect =
-        case S.toList cs of
+        case S.toList new of
           [v] -> do
             case lookup v (_varCommonValues . _instanceVarCommon $ iv) of
               Nothing -> internalBug "one of candidates is invalid"
               Just eff -> eff (VarInstance iv)
           _ -> return ()
-  tell [Assignment (untypeInstanceVar iv) effect (writeIORef ref orig)]
+  writeIORef ref new
+  return (old, new, Assignment (untypeInstanceVar iv) effect (writeIORef ref old))
 
 instance MonadReader (SolveContext c) (Solve c) where
   -- ask :: Solve c (SolveContext c)
@@ -676,8 +674,7 @@ stepback (x:xs) = do
     (y:ys) -> choose y ys
 
 choose x xs = undefined {- do
-  -- todo: uninject constraint first
-  ((), [a]) <- liftIO $ runReadWrite x
+  ((), [a]) <- liftIO $ runReadWriteInstance x
   assignedVars %= (AssignmentFrame (assignmentUndo a) xs True :)
   propagateEffects [a]
   -}
@@ -811,9 +808,11 @@ instance Level Abstract where
 -- another constraint, the set of associated values will become empty,
 -- and the solver will begin backjumping.
 setVar :: (Level level, Ord a) => Var constraint a -> a -> ReadWrite level constraint ()
-setVar var val = modifyInstanceVar collapse =<< getInstanceVar "set" var where
-  collapse cds | S.member val cds = S.singleton val
-               | otherwise = S.empty
+setVar var val = modifyInstanceVar (collapse val) =<< getInstanceVar "set" var where
+
+collapse :: (Ord a) => a -> S.Set a -> S.Set a
+collapse val cds | S.member val cds = S.singleton val
+                 | otherwise = S.empty
 
 -- | Removes the given value from the variable's set of candidate values.
 -- If the set becomes empty as a result, the solver will begin backjumping.
