@@ -191,6 +191,7 @@ data Constraint l c = Constraint {
   constraintUninject :: IORef (IO ()) }
 
 type AbstractInner c = RWST (IORef Int) [Constraint Abstract c] Satisfiable IO
+-- todo: push satisfiable into the writer
 type InstanceInner c = RWST NewContext ([UntypedInstanceVar c], [Constraint Instance c], [Assignment c]) Satisfiable IO
 
 data Satisfiable = Satisfiable | Contradiction
@@ -346,7 +347,7 @@ orderValues
 orderValues values = z where
   z = do
     (cs, amakers) <- unzip . sortBy (compare `on` fst) <$> liftIO (mapM varCount (M.toList values))
-    when (contradiction (map snd cs)) $ put Contradiction
+    when (mconcat (map snd cs) == Contradiction) $ put Contradiction
     return amakers
   varCount (a, maker) = do
     stubState <- NewContext (return False) Nothing <$> newIORef 0
@@ -440,8 +441,11 @@ nextId = do
     modifyIORef ref (+1)
     return ret
 
-contradiction :: [Satisfiable] -> Bool
-contradiction = any (== Contradiction)
+instance Monoid Satisfiable where
+  mempty = Satisfiable
+  mappend Contradiction _ = Contradiction
+  mappend _ Contradiction = Contradiction
+  mappend _ _ = Satisfiable
 
 instance Functor (New Instance c)
 instance Applicative (New Instance c)
@@ -686,8 +690,8 @@ propagateEffects as = do
   contradiction <- any null <$> liftIO (mapM (untypedInstanceVarValues . assignmentVar) as)
   if contradiction then jumpback else do
   -- create new vars and constraints from the assignments made
-  (sat, newVars, newConstraints) <- runEffects as
-  if not sat then jumpback else do
+  (sat, newVars, newConstraints, newAssignments) <- runEffects as
+  if sat == Contradiction then jumpback else do
   debug $ "generated " ++ show (length newVars) ++ " new vars and " ++ show (length newConstraints) ++ " new constraints"
   unassignedVars %= S.union (S.fromList newVars)
   unrevisedInstanceConstraints %= S.union (S.fromList newConstraints)
@@ -701,18 +705,17 @@ propagateEffects as = do
       Just (uav, inst) -> do
         acs <- liftIO . readIORef $ untypedAbstractVarAbstractConstraints uav
         unrevisedAbstractConstraints %= S.union (S.mapMonotonic (,inst) acs)
-  loop
+  if null newAssignments then loop else propagateEffects newAssignments
 
-runEffects :: [Assignment c] -> Solve c (Bool, [UntypedInstanceVar c], [Constraint Instance c])
-runEffects as = undefined {- do
+runEffects :: [Assignment c] -> Solve c (Satisfiable, [UntypedInstanceVar c], [Constraint Instance c], [Assignment c])
+runEffects as = do
   nextIdRef <- view solveNext
   liftIO $ do
     -- todo: change collectable to be dependent on whether
     -- the instigating variable has multiple candidate values.
     let context = NewContext (return False) Nothing nextIdRef
     out <- mapM ((flip runNewInstance context) . assignmentEffect) as
-    return . (\(bs,vss,css) -> (all id bs, concat vss, concat css)) . unzip3 . map (\((),b,v,c) -> (b,v,c)) $ out
-    -}
+    return . (\(bs,vss,css,ass) -> (mconcat bs, concat vss, concat css, concat ass)) . unzip4 . map (\((),b,v,c,a) -> (b,v,c,a)) $ out
 
 -- For some reason ghc can't infer this type.
 pop :: MonadState s m => Simple Lens s (S.Set a) -> m (Maybe a)
