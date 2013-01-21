@@ -437,6 +437,9 @@ uninject c = join $ readIORef (constraintUninject c)
 
 deriving instance (Eq c) => Eq (InstanceConstraint c)
 deriving instance (Ord c) => Ord (InstanceConstraint c)
+instance Show (InstanceConstraint c) where
+  show (InstanceConstraint c) = show c
+  show (InstantiatedConstraint c _) = show c
 
 class IdSource m where
   idSource :: m (IORef Int)
@@ -654,7 +657,7 @@ solve learner definition reader = do
 -- loop :: Solve c Bool
 loop = do
   mbc <- pop unrevisedConstraints
-  -- debug $ "popped constraint: " ++ show mbc
+  debug $ "popped constraint: " ++ show mbc
   case mbc of
     Nothing -> do
       mbv <- pop unassignedVars
