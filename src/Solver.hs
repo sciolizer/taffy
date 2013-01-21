@@ -32,7 +32,7 @@ module Solver (
   -- By explicitly encoding the symmetry of your problem into constraints
   -- over 'Avar's, you can avoid a lot of duplicated computation.
   Var(),
-  Values(..),
+  Values,
 
   -- * The two levels
   Instance(),
@@ -64,13 +64,13 @@ import Control.Exception
 import Control.Lens
 import Control.Monad.IO.Class
 import Control.Monad.RWS
-import Control.Monad.Writer
-import Data.Either
+-- import Control.Monad.Writer
+-- import Data.Either
 import Data.Function
 import Data.IORef
 import Data.List hiding (group)
 import qualified Data.Map as M
-import Data.Maybe
+-- import Data.Maybe
 import qualified Data.Set as S
 import Data.Unique
 
@@ -109,7 +109,7 @@ data VarCommon c a = VarCommon {
   -- be no more than y's product.
   -- (constraints generated is not a factor in ordering, since they
   -- don't actually make the problem larger)
-  _varCommonValues :: [(a, ValueEffect c a)] }
+  varCommonValues :: [(a, ValueEffect c a)] }
 
 -- | An untyped container for both 'Avar's and 'Ivar's. Use it as an argument
 -- to the 'newConstraint' function.
@@ -213,9 +213,9 @@ data New level constraint a where
 data NewContext = NewContext {
   _newContextCollectable :: IO Bool,
   _newContextInstantiation :: Maybe Instantiation,
-  _newContextNext :: IORef Int }
+  _newContextNext :: IORef Int } -- todo: this would actually make more sense as an IO Int, which would also abstract away ioref vs mvar, in case that ever changes
 
-newtype Instantiation = Instantiation { unInstantiation :: Unique }
+newtype Instantiation = Instantiation Unique
   deriving (Eq, Ord)
 
 -- | Problem definition monad.
@@ -292,15 +292,14 @@ data SolveState c = SolveState {
   _learntAbstractConstraints :: S.Set (Constraint Abstract c) }
 
 data AssignmentFrame c = AssignmentFrame {
-  _frameUndo :: IO (),
-  _frameUntriedValues :: UntypedValues c,
-  _frameDecisionLevel :: Bool }
+  frameUndo :: IO (),
+  frameUntriedValues :: UntypedValues c,
+  frameDecisionLevel :: Bool }
 
 makeLenses ''Var
 makeLenses ''VarCommon
 makeLenses ''SolveState
 makeLenses ''SolveContext
-makeLenses ''AssignmentFrame
 makeLenses ''NewContext
 
 -- todo: document why I'm not including level as a type
@@ -423,7 +422,7 @@ newConstraint' mbName c resolve = do
   uninject <- liftIO $ newIORef (return ())
   let reset = writeIORef uninject reset
   liftIO reset
-  let c' = Constraint name (Just c) resolve (return False) uninject
+  let c' = Constraint name (Just c) resolve collectable uninject
   -- the question is: can I add "current constraint" to the context of the
   -- ReadWrite monad? Will I always have a constraint available to put
   -- into the context?
@@ -456,11 +455,15 @@ instance Monoid Satisfiable where
   mappend _ Contradiction = Contradiction
   mappend _ _ = Satisfiable
 
-instance Functor (New Instance c)
-instance Applicative (New Instance c)
+instance Functor (New Instance c) where
+  fmap f (NewInstance m) = NewInstance (fmap f m)
+instance Applicative (New Instance c) where
+  pure x = NewInstance (pure x)
+  (NewInstance f) <*> (NewInstance x) = NewInstance (f <*> x)
 instance Monad (New Instance c) where
   return x = NewInstance (return x)
   (NewInstance x) >>= f = NewInstance (unNewInstance . f =<< x) where
+    unNewInstance :: New Instance c a -> InstanceInner c a
     unNewInstance (NewInstance m) = m
 instance MonadIO (New Instance c) where
   liftIO = NewInstance . liftIO
@@ -531,7 +534,9 @@ runInit
 runInit (Init m) = do
   n <- newIORef 0
   let context = NewContext (return False) Nothing n
-  ((a, cas), b, vars, cis, asgns) <- runNewInstance (evalRWST m n ()) context
+  -- I *think* it's ok to ignore asgns, since they are all
+  -- implications of decision level zero.
+  ((a, cas), b, vars, cis, _asgns) <- runNewInstance (evalRWST m n ()) context
   return (a, b, n, vars, cis, cas)
 
 -- | Groups a collection of abstract vars and constraints into
@@ -560,6 +565,7 @@ runReadWriteInstance (ReadWrite m) c = do
 
 askInstanceInjector :: ReadWrite Instance c (Injector UntypedInstanceVar c)
 askInstanceInjector = ReadWrite (asks getInjector) where
+  getInjector :: ReadWriteContext Instance c -> Injector UntypedInstanceVar c
   getInjector (InstanceReadWriteContext i) = i
 
 runReadWriteAbstract
@@ -581,6 +587,7 @@ makeInjector getConstraints c var = do
 
 askAbstractInjector :: ReadWrite Abstract c (Injector UntypedAbstractVar c)
 askAbstractInjector = ReadWrite (asks getInjector) where
+  getInjector :: ReadWriteContext Abstract c -> Injector UntypedAbstractVar c
   getInjector (AbstractReadWriteContext _ _ i) = i
 
 askInstantiation = ReadWrite (asks (\(AbstractReadWriteContext i _ _) -> i))
@@ -607,7 +614,7 @@ changeInstanceVar mod iv = do
   let effect =
         case S.toList new of
           [v] -> do
-            case lookup v (_varCommonValues . _instanceVarCommon $ iv) of
+            case lookup v (varCommonValues . _instanceVarCommon $ iv) of
               Nothing -> internalBug "one of candidates is invalid"
               Just eff -> eff (VarInstance iv)
           _ -> return ()
@@ -637,7 +644,7 @@ solve
 solve learner definition reader = do
   (a, satisfiable, idsource, ivars, iconstraints, _aconstraints) <- runInit definition
   let ss = SolveState [] (S.fromList ivars) (S.fromList (map InstanceConstraint iconstraints)) S.empty S.empty
-  completed <- evalSolve loop (SolveContext idsource learner) ss
+  completed <- if satisfiable == Contradiction then return False else evalSolve loop (SolveContext idsource learner) ss
   (ret, _assignments) <- runReadWriteInstance (reader a) undefined
   return (completed, ret)
 
@@ -662,6 +669,7 @@ loop = do
               assignedVars %= (AssignmentFrame (return ()) [] False :)
               loop
             (x:xs) -> choose x xs
+    Just (InstantiatedConstraint _ _) -> liftIO . throwIO . userError $ "abstract constraints not yet supported"
     Just (InstanceConstraint c) -> do
       liftIO $ uninject c
       (satisfiable, as) <- liftIO $ runReadWriteInstance (constraintResolve c) c
@@ -672,17 +680,17 @@ loop = do
 -- jumpback :: (Ord c) => Solve c Bool
 jumpback = do
   vs <- use assignedVars
-  let (pop,keep) = span (not . _frameDecisionLevel) vs
+  let (pop,keep) = span (not . frameDecisionLevel) vs
   -- todo: put constraint learning in here
-  liftIO $ mapM_ _frameUndo pop
+  liftIO $ mapM_ frameUndo pop
   debug $ "undid " ++ show (length pop) ++ " frames"
   stepback keep
 
 stepback [] = return False
 stepback (x:xs) = do
   debug "stepback"
-  liftIO $ _frameUndo x
-  case _frameUntriedValues x of
+  liftIO $ frameUndo x
+  case frameUntriedValues x of
     [] -> stepback xs
     (y:ys) -> choose y ys
 
@@ -734,6 +742,7 @@ pop set  = do
   return (Just v)
 
 instance Level Abstract where
+  getInstanceVar _ (VarInstance _) = liftIO . throwIO . userError $ "internal bug: tried to find instance variable while in Abstract monad"
   getInstanceVar _ (VarAbstract av) = do
     inst <- askInstantiation
     liftIO $ do
@@ -798,6 +807,7 @@ instance Level Abstract where
     return ((), return () {- is this right? -})
 
   -- todo: move this outside of the type class
+  readVar (VarInstance iv) = illegalUseOfInstanceVariable "read" iv
   readVar (VarAbstract av) = do
     inject <- askAbstractInjector
     inst <- askInstantiation
@@ -864,6 +874,7 @@ instance Level Instance where
       -- next
       inject (untypeInstanceVar iv)
       readIORef . _instanceVarCandidates $ iv
+  readVar (VarAbstract av) = illegalUseOfAbstractVariable "read" av
 
   newConstraint mbName c resolve = NewInstance $ do
     -- what I end up doing with fixme will probably depend on whether
@@ -877,6 +888,10 @@ instance Level Instance where
     when (not b) $ put Contradiction
     tell ([], [c'], assgns)
 
+-- todo: unify with abstract variable version, or else
+-- make level a type parameter of Var
+illegalUseOfInstanceVariable action va = liftIO . throwIO . userError . illegalArgument $ "cannot " ++ action ++ " instance variable " ++ (name . _varCommonIdentity . _instanceVarCommon $ va) ++ " when inside 'ReadWrite Abstract constraint' monad" where
+  illegalArgument = error
 illegalUseOfAbstractVariable action va = liftIO . throwIO . userError . illegalArgument $ "cannot " ++ action ++ " abstract variable " ++ (name . _varCommonIdentity . _abstractVarCommon $ va) ++ " when inside 'ReadWrite Instance constraint' monad" where
   illegalArgument = error
 
