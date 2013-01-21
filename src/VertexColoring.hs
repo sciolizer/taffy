@@ -132,7 +132,20 @@ grouped = undefined {- sequenceA (map var ['A'..'G']) <* connectA <* connectG wh
 something :: New Abstract Constraint (Vertex, Vertex)
 something = somethingElse <*> newVar (Just "x") colors <*> newVar (Just "y") colors
 
-somethingElse :: New Abstract Constraint (Vertex -> Vertex -> (Vertex, Vertex))
+somethingElse :: New Abstract Constraint (Vertex -> Vertex -> (Vertex -> Vertex -> New Abstract Constraint ()) -> (Vertex, Vertex))
 somethingElse = undefined
+
+liftAX
+  (\vars c1 -> let [a,b] = vars
+
+a <- newVar
+b <- newVar
+connect a b
+
+bind :: NA a -> (a -> NA b) -> NA b
+bind
+
+bind :: NA (Var a) -> (Var a -> NA b) -> NA b
+(\a b x -> x a b
 
 connected = constrain Unequal

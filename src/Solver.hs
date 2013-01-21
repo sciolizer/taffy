@@ -44,7 +44,8 @@ module Solver (
   setVar,
   shrinkVar,
   varName,
-  newConstraint,
+  newInstanceConstraint,
+  newAbstractConstraint,
 
   -- * Abstract variables and constraints
   Abstract(),
@@ -194,7 +195,7 @@ data InstanceConstraint c
   = InstanceConstraint (Constraint Instance c)
   | InstantiatedConstraint (Constraint Abstract c) Instantiation
 
-type AbstractInner c = RWST (IORef Int) [Constraint Abstract c] Satisfiable IO
+type AbstractInner c = RWST (IORef Int) () Satisfiable IO
 -- todo: push satisfiable into the writer
 type InstanceInner c = RWST NewContext ([UntypedInstanceVar c], [Constraint Instance c], [Assignment c]) Satisfiable IO
 
@@ -319,14 +320,6 @@ class Level level where
   -- of a constraint. A singleton value indicates that the variable
   -- has been assigned.
   readVar :: (Ord a) => Var constraint a -> ReadWrite level constraint (S.Set a)
-
-  -- | Constrains a set of variables.
-  newConstraint
-    :: (Ord constraint)
-    => Maybe String
-    -> constraint
-    -> ReadWrite level constraint Bool -- ^ Constraint testing function. Should return False only when the constraint can no longer be satisfied. It should call 'setVar' or 'shrinkVar' when it can make a deduction.
-    -> New level constraint ()
 
 instance Eq NameAndIdentity where (==) = (==) `on` identity
 instance Ord NameAndIdentity where compare = compare `on` identity
@@ -517,19 +510,21 @@ instance MonadReader NewContext (New Abstract c) where
 runNewAbstract
   :: New Abstract c a
   -> IORef Int
-  -> IO (a, Satisfiable, New Instance c a, [Constraint Abstract c])
+  -> IO (a, Satisfiable, New Instance c a)
 runNewAbstract (NewAbstract inner) c = do
-  ((ret, inst), s, constraints) <- runRWST inner c Satisfiable -- check bool!
+  ((ret, inst), s, ()) <- runRWST inner c Satisfiable -- check bool!
   let instMaker = do
         i <- Instantiation <$> liftIO newUnique
         local (set newContextInstantiation (Just i)) inst
-  return (ret, s, instMaker, constraints)
+  return (ret, s, instMaker)
 
 deriving instance Applicative (Init c)
 deriving instance Functor (Init c)
 deriving instance Monad (Init c)
 deriving instance MonadIO (Init c)
 deriving instance MonadWriter [Constraint Abstract c] (Init c)
+deriving instance MonadReader (IORef Int) (Init c)
+instance IdSource (Init c) where idSource = ask
 
 runInit
   :: Init c a
@@ -549,8 +544,7 @@ group m = do
   ref <- Init ask
   -- should not break on contradiction, since this group
   -- might never be used
-  (_, _satisfiable, ret, cs) <- liftIO $ runNewAbstract m ref
-  tell cs
+  (_, _satisfiable, ret) <- liftIO $ runNewAbstract m ref
   return ret
 
 make :: New Instance constraint a -> Init constraint a
@@ -796,22 +790,6 @@ instance Level Abstract where
           return (VarInstance var)
     return (VarAbstract u', iv)
 
-  newConstraint mbName c resolve = NewAbstract $ do
-    -- what I end up doing with fixme will probably depend on whether
-    -- I can successfully implement newConstraint' or not
-    c' <- newConstraint' mbName c resolve
-    tell [c']
-    -- agh... how do I wire myself up to the relevant abstract vars?
-    -- what is readVar supposed to do without a particular instantiation?
-    -- I suppose if there's no instantiation, readVar can just return ALL
-    -- values, and the setVar and shrinkVar are no-ops
-    -- its ok to ignore when _b is False (the pattern might never
-    -- be instantiated), and when _assgns is not null (the assignments
-    -- are for dummy variables anyway)
-    i <- Instantiation <$> liftIO newUnique
-    (_b, _assgns) <- liftIO $ runReadWriteAbstract resolve i CreatingConstraint c'
-    return ((), return () {- is this right? -})
-
   -- todo: move this outside of the type class
   readVar (VarInstance iv) = illegalUseOfInstanceVariable "read" iv
   readVar (VarAbstract av) = do
@@ -829,6 +807,44 @@ instance Level Abstract where
             Just (av',inst') | av' /= av -> croak "internal bug: abstract var points to instance var which points to a DIFFERENT abstract var"
                              | inst /= inst' -> croak "internal bug: abstract var points to instance var but instance var's instantiation is different"
                              | otherwise -> readIORef (_instanceVarCandidates iv)
+
+-- | Constrains a set of variables.
+newAbstractConstraint
+  :: (Ord constraint)
+  => Maybe String
+  -> constraint
+  -> ReadWrite Abstract constraint Bool -- ^ Constraint testing function. Should return False only when the constraint can no longer be satisfied. It should call 'setVar' or 'shrinkVar' when it can make a deduction.
+  -> Init constraint ()
+newAbstractConstraint mbName c resolve = do
+  -- what I end up doing with fixme will probably depend on whether
+  -- I can successfully implement newConstraint' or not
+  c' <- newConstraint' mbName c resolve
+  Init $ do
+    tell [c']
+    -- agh... how do I wire myself up to the relevant abstract vars?
+    -- what is readVar supposed to do without a particular instantiation?
+    -- I suppose if there's no instantiation, readVar can just return ALL
+    -- values, and the setVar and shrinkVar are no-ops
+    -- its ok to ignore when _b is False (the pattern might never
+    -- be instantiated), and when _assgns is not null (the assignments
+    -- are for dummy variables anyway)
+    i <- Instantiation <$> liftIO newUnique
+    -- ok to ignore satisfiable, since the group might
+    -- never be instantiated
+    -- assgns should probably not be ignored, but it doesn't hurt to
+    -- ignore it. It just means certain revisions will be re-run multiple times
+    -- (but this is not likely to be expensive).
+    (_b, _assgns) <- liftIO $ runReadWriteAbstract resolve i CreatingConstraint c'
+    return ()
+
+{-
+constraint
+  :: (Ord constraint)
+  => New level constraint (Maybe String, constraint, ReadWrite level constraint Bool)
+  -> New level constraint ()
+constraint ni@(NewInstance _) = (\(a,b,c) -> newConstraint a b c) =<< ni
+constraint (NewAbstract _) = undefined
+-}
 
 -- | Removes all but the given value from the variable's set of
 -- candidate values. If the given value is already in violation of
@@ -882,17 +898,24 @@ instance Level Instance where
       readIORef . _instanceVarCandidates $ iv
   readVar (VarAbstract av) = illegalUseOfAbstractVariable "read" av
 
-  newConstraint mbName c resolve = NewInstance $ do
-    -- what I end up doing with fixme will probably depend on whether
-    -- I can successfully implement newConstraint' or not
-    c' <- newConstraint' mbName c resolve
-    -- agh... how do I wire myself up to the relevant abstract vars?
-    -- what is readVar supposed to do without a particular instantiation?
-    -- I suppose if there's no instantiation, readVar can just return ALL
-    -- values, and the setVar and shrinkVar are no-ops
-    (b, assgns) <- liftIO $ runReadWriteInstance resolve c'
-    when (not b) $ put Contradiction
-    tell ([], [c'], assgns)
+-- | Constrains a set of variables.
+newInstanceConstraint
+  :: (Ord constraint)
+  => Maybe String
+  -> constraint
+  -> ReadWrite Instance constraint Bool -- ^ Constraint testing function. Should return False only when the constraint can no longer be satisfied. It should call 'setVar' or 'shrinkVar' when it can make a deduction.
+  -> New Instance constraint ()
+newInstanceConstraint mbName c resolve = NewInstance $ do
+  -- what I end up doing with fixme will probably depend on whether
+  -- I can successfully implement newConstraint' or not
+  c' <- newConstraint' mbName c resolve
+  -- agh... how do I wire myself up to the relevant abstract vars?
+  -- what is readVar supposed to do without a particular instantiation?
+  -- I suppose if there's no instantiation, readVar can just return ALL
+  -- values, and the setVar and shrinkVar are no-ops
+  (b, assgns) <- liftIO $ runReadWriteInstance resolve c'
+  when (not b) $ put Contradiction
+  tell ([], [c'], assgns)
 
 -- todo: unify with abstract variable version, or else
 -- make level a type parameter of Var
