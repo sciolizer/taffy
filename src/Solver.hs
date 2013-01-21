@@ -539,13 +539,13 @@ runInit (Init m) = do
 
 -- | Groups a collection of abstract vars and constraints into
 -- one, so that the pattern can be instantiated multiple times.
-group :: New Abstract constraint a -> Init constraint (New Instance constraint a)
+group :: New Abstract constraint a -> Init constraint (a, New Instance constraint a)
 group m = do
   ref <- Init ask
   -- should not break on contradiction, since this group
   -- might never be used
-  (_, _satisfiable, ret) <- liftIO $ runNewAbstract m ref
-  return ret
+  (a, _satisfiable, ret) <- liftIO $ runNewAbstract m ref
+  return (a, ret)
 
 make :: New Instance constraint a -> Init constraint a
 make = Init . lift

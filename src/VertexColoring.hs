@@ -40,9 +40,12 @@ instantiations together.
 
 -}
 
-import Control.Applicative
+import Prelude hiding (mapM)
+
+-- import Control.Applicative
 import qualified Data.Map as M
 import qualified Data.Set as S
+import Data.Traversable
 
 import Solver
 
@@ -77,16 +80,16 @@ learner :: [Constraint] -> New Instance Constraint ()
 learner constraints = sequence_ [combine c1 c2 | c1 <- constraints, c2 <- constraints] where
   combine c1@(Constraint r1 x1 y1) c2@(Constraint r2 x2 y2)
     | c1 <= c2 = return ()
-    | x1 == x2 = constrain (mix r1 r2) y1 y2
-    | x1 == y2 = constrain (mix r1 r2) y1 x2
-    | y1 == x2 = constrain (mix r1 r2) x1 y2
-    | y1 == y2 = constrain (mix r1 r2) x1 x2
+    | x1 == x2 = constrain newInstanceConstraint (mix r1 r2) y1 y2 -- todo: does this actually produce abstract constraints?
+    | x1 == y2 = constrain newInstanceConstraint (mix r1 r2) y1 x2
+    | y1 == x2 = constrain newInstanceConstraint (mix r1 r2) x1 y2
+    | y1 == y2 = constrain newInstanceConstraint (mix r1 r2) x1 x2
     | otherwise = return ()
 
 lift Equal = (==)
 lift Unequal = (/=)
 
-constrain rel v1 v2 = newConstraint (Just $ show v1 ++ show rel ++ show v2) c op where
+constrain nc rel v1 v2 = nc (Just $ show v1 ++ show rel ++ show v2) c op where
   c = Constraint rel v1 v2
   -- Realistically, this would read the value of one variable, and
   -- then set the other to the opposite, which would cause
@@ -111,41 +114,28 @@ constrain rel v1 v2 = newConstraint (Just $ show v1 ++ show rel ++ show v2) c op
 
 problem :: Init Constraint [Vertex]
 problem = do
-  pattern <- group grouped
+  ([t,u,v,w,x,y,z], pattern) <- group grouped
+  mapM_ (connected newAbstractConstraint t) [u,v,w,x,y]
+  mapM_ (connected newAbstractConstraint z) [u,v,w,x,y]
   [a,b,c,d,e,f,g] <- make pattern
   [h,i,j,k,l,m,n] <- make pattern
-  make (connected g h)
+  make (connected newInstanceConstraint g h)
   return [a,b,c,d,e,f,g,h,i,j,k,l,m,n]
 
 colors = M.fromList [(Black, \_ -> return ()),(White, \_ -> return ())]
 
 grouped :: New Abstract Constraint [Vertex]
-grouped = undefined {- sequenceA (map var ['A'..'G']) <* connectA <* connectG where
+grouped = sequenceA (map var ['A'..'G']) where
   var c = newVar (Just $ show c) colors
+{-
   connectA = map
   [a,b,c,d,e,f,g] <- mapM (\c -> newVar (Just $ show c) colors) ['A'..'G']
   mapM_ (connected a) [b,c,d,e,f]
   mapM_ (connected g) [b,c,d,e,f]
   return [a,b,c,d,e,f,g]
-  -}
 
 something :: New Abstract Constraint (Vertex, Vertex)
 something = somethingElse <*> newVar (Just "x") colors <*> newVar (Just "y") colors
+  -}
 
-somethingElse :: New Abstract Constraint (Vertex -> Vertex -> (Vertex -> Vertex -> New Abstract Constraint ()) -> (Vertex, Vertex))
-somethingElse = undefined
-
-liftAX
-  (\vars c1 -> let [a,b] = vars
-
-a <- newVar
-b <- newVar
-connect a b
-
-bind :: NA a -> (a -> NA b) -> NA b
-bind
-
-bind :: NA (Var a) -> (Var a -> NA b) -> NA b
-(\a b x -> x a b
-
-connected = constrain Unequal
+connected nc = constrain nc Unequal
