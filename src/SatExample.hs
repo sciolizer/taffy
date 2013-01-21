@@ -51,7 +51,7 @@ definition = do
 
 mkDisjunction parts = do
   let cl = Disjunction parts
-  newConstraint
+  newInstanceConstraint
     (Just (show cl))
     cl
     (resolve cl)
