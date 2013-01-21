@@ -282,10 +282,10 @@ newtype Solve c a = Solve (RWST (SolveContext c) () (SolveState c) IO a)
 
 data SolveContext c = SolveContext {
   _solveNext :: IORef Int,
-  _solveLearner :: [c] -> IO [c] }
+  _solveLearner :: [c] -> New Instance c () }
 
 data SolveState c = SolveState {
-  _assignedVars :: [AssignmentFrame c], -- head is most recently assigned
+  _assignedVars :: [AssignmentFrame c], -- head is most recently assigned (acts like a stack)
   _unassignedVars :: S.Set (UntypedInstanceVar c),
   _unrevisedConstraints :: S.Set (InstanceConstraint c),
   _learntInstanceConstraints :: S.Set (Constraint Instance c),
@@ -633,19 +633,18 @@ solve
   => ([constraint] -> New Instance constraint ()) -- ^ Constraint learning function, for conflict-directed constraint learning. The head of the given list is the constraint which produced a contradiction.
   -> Init constraint a -- ^ Problem definition. You should return the 'Var's that you plan on reading from (using 'readIvar') when a solution is found.
   -> (a -> ReadWrite Instance constraint b) -- ^ solution reader
-  -> IO (Bool, b) -- ^ 'False' iff no solution exists. Values returned from 'readIvar' after solve completes are 'undefined' if 'False' is returned; otherwise they will be singleton sets containing the satisfying assignment.
-solve learner definition = undefined {- do
-  (ret, check, newstate, _avars, ivars, constraints) <- runInit definition
-  mapM_ attach constraints
-  let ss = SolveState [] (S.fromList ivars) (S.fromList constraints) S.empty
-  completed <- evalSolve loop (SolveContext newstate learner check) ss
+  -> IO (Bool, b) -- ^ 'False' iff no solution exists. Values returned from 'readIvar' after solve completes are available only for debugging purposes if 'False' is returned (no guarantees are made about their values); otherwise they will be singleton sets containing the satisfying assignment.
+solve learner definition reader = do
+  (a, satisfiable, idsource, ivars, iconstraints, _aconstraints) <- runInit definition
+  let ss = SolveState [] (S.fromList ivars) (S.fromList (map InstanceConstraint iconstraints)) S.empty S.empty
+  completed <- evalSolve loop (SolveContext idsource learner) ss
+  (ret, _assignments) <- runReadWriteInstance (reader a) undefined
   return (completed, ret)
-  -}
 
 -- loop :: Solve c Bool
 loop = do
   mbc <- pop unrevisedConstraints
-  debug $ "popped constraint: " ++ show mbc
+  -- debug $ "popped constraint: " ++ show mbc
   case mbc of
     Nothing -> do
       mbv <- pop unassignedVars
