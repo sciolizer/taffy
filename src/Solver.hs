@@ -645,7 +645,7 @@ solve learner definition reader = do
   (a, satisfiable, idsource, ivars, iconstraints, _aconstraints) <- runInit definition
   let ss = SolveState [] (S.fromList ivars) (S.fromList (map InstanceConstraint iconstraints)) S.empty S.empty
   completed <- if satisfiable == Contradiction then return False else evalSolve loop (SolveContext idsource learner) ss
-  (ret, _assignments) <- runReadWriteInstance (reader a) undefined
+  (ret, _assignments) <- runReadWriteInstance (reader a) (error "still need stub constraint for running reader")
   return (completed, ret)
 
 -- loop :: Solve c Bool
