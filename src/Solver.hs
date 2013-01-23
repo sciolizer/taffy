@@ -261,13 +261,12 @@ data ReadWriteContext level c where
     :: Injector UntypedInstanceVar c
     -> ReadWriteContext Instance c
   AbstractReadWriteContext
-    :: Instantiation
-    -> ReadWriteMode -- todo: is this necessary?
+    :: ReadWriteMode
     -> Injector UntypedAbstractVar c
     -> ReadWriteContext Abstract c
 
-data ReadWriteMode = CreatingConstraint | RevisingConstraint
-  deriving (Bounded, Enum, Eq, Ord, Read, Show)
+data ReadWriteMode = CreatingConstraint | RevisingConstraint Instantiation
+  deriving (Eq, Ord)
 
 data Assignment c = Assignment {
   assignmentVar :: UntypedInstanceVar c,
@@ -305,9 +304,11 @@ makeLenses ''NewContext
 
 -- todo: document why I'm not including level as a type
 -- parameter on Var.
+-- biggest reason: type of args to NewAbstract must be same
+-- creating an instanceOf function just creates unnecessary complexity
 
 class Level level where
-  getInstanceVar :: String -> Var c a -> ReadWrite level c (InstanceVar c a)
+  getInstanceVar :: (Ord a) => String -> Var c a -> ReadWrite level c (InstanceVar c a)
 
   -- | Creates an new variable.
   newVar
@@ -568,13 +569,12 @@ askInstanceInjector = ReadWrite (asks getInjector) where
 runReadWriteAbstract
   :: (Ord c)
   => ReadWrite Abstract c a
-  -> Instantiation
   -> ReadWriteMode
   -> Constraint Abstract c
   -> IO (a, [Assignment c])
-runReadWriteAbstract (ReadWrite m) i ram c = do
+runReadWriteAbstract (ReadWrite m) mode c = do
   let inject = makeInjector untypedAbstractVarAbstractConstraints c
-  evalRWST m (AbstractReadWriteContext i ram inject) ()
+  evalRWST m (AbstractReadWriteContext mode inject) ()
 
 makeInjector :: (Ord c) => (untyped c -> IORef (Constraints l c)) -> Constraint l c -> Injector untyped c
 makeInjector getConstraints c var = do
@@ -585,9 +585,9 @@ makeInjector getConstraints c var = do
 askAbstractInjector :: ReadWrite Abstract c (Injector UntypedAbstractVar c)
 askAbstractInjector = ReadWrite (asks getInjector) where
   getInjector :: ReadWriteContext Abstract c -> Injector UntypedAbstractVar c
-  getInjector (AbstractReadWriteContext _ _ i) = i
+  getInjector (AbstractReadWriteContext _ i) = i
 
-askInstantiation = ReadWrite (asks (\(AbstractReadWriteContext i _ _) -> i))
+askReadWriteMode = ReadWrite (asks (\(AbstractReadWriteContext m _) -> m))
 
 modifyInstanceVar
   :: (Level level, Ord a)
@@ -744,18 +744,28 @@ pop set  = do
 instance Level Abstract where
   getInstanceVar str (VarInstance _) = liftIO . throwIO . userError $ "internal bug: tried to find instance variable while in Abstract monad: " ++ str
   getInstanceVar str (VarAbstract av) = do
-    inst <- askInstantiation
-    liftIO $ do
-      instances <- readIORef (_abstractVarInstances av)
-      let croak s = throwIO . userError $ s ++ ": " ++ str
-      case M.lookup inst instances of
-        Nothing -> croak $ "attempted to read from wrong abstract var"
-        Just iv ->
-          case _instanceVarAbstractVar iv of
-            Nothing -> croak $ "internal bug: abstract var points to instance var, but reverse relationship does not exist"
-            Just (av',inst') | av' /= av -> croak "internal bug: abstract var points to instance var which points to a DIFFERENT abstract var"
-                             | inst /= inst' -> croak "internal bug: abstract var points to instance var but instance var's instantiation is different"
-                             | otherwise -> return iv
+    rwm <- askReadWriteMode
+    case rwm of
+      CreatingConstraint -> liftIO $ do
+        -- todo: actually, if setVar and shrinkVar make modifications
+        -- to this dummy variable, we really ought to remember the
+        -- changes
+        dummyInstantiation <- Instantiation <$> newUnique
+        dummyCandidates <- newIORef (S.fromList . map fst . varCommonValues . _abstractVarCommon $ av)
+        dummyConstraints <- newIORef S.empty
+        dummyNI <- NameAndIdentity "dummy variable" <$> newUnique
+        return (InstanceVar (Just (av, dummyInstantiation)) dummyCandidates dummyConstraints (VarCommon dummyNI (varCommonValues $ _abstractVarCommon av)))
+      RevisingConstraint inst -> liftIO $ do
+        instances <- readIORef (_abstractVarInstances av)
+        let croak s = throwIO . userError $ s ++ ": " ++ str
+        case M.lookup inst instances of
+          Nothing -> croak $ "attempted to read from wrong abstract var"
+          Just iv ->
+            case _instanceVarAbstractVar iv of
+              Nothing -> croak $ "internal bug: abstract var points to instance var, but reverse relationship does not exist"
+              Just (av',inst') | av' /= av -> croak "internal bug: abstract var points to instance var which points to a DIFFERENT abstract var"
+                               | inst /= inst' -> croak "internal bug: abstract var points to instance var but instance var's instantiation is different"
+                               | otherwise -> return iv
 
   newVar mbName values = NewAbstract $ do
     -- make name (shared but slightly different)
@@ -792,21 +802,12 @@ instance Level Abstract where
 
   -- todo: move this outside of the type class
   readVar (VarInstance iv) = illegalUseOfInstanceVariable "read" iv
-  readVar (VarAbstract av) = do
+  readVar v@(VarAbstract av) = do
     inject <- askAbstractInjector
-    inst <- askInstantiation
+    iv <- getInstanceVar "readVar (abstract)" v
     liftIO $ do
       inject (untypeAbstractVar av)
-      instances <- readIORef (_abstractVarInstances av)
-      let croak s = throwIO . userError $ s ++ ": " ++ "readVar (abstract)"
-      case M.lookup inst instances of
-        Nothing -> croak $ "attempted to read from wrong abstract var"
-        Just iv ->
-          case _instanceVarAbstractVar iv of
-            Nothing -> croak $ "internal bug: abstract var points to instance var, but reverse relationship does not exist"
-            Just (av',inst') | av' /= av -> croak "internal bug: abstract var points to instance var which points to a DIFFERENT abstract var"
-                             | inst /= inst' -> croak "internal bug: abstract var points to instance var but instance var's instantiation is different"
-                             | otherwise -> readIORef (_instanceVarCandidates iv)
+      readIORef (_instanceVarCandidates iv)
 
 -- | Constrains a set of variables.
 newAbstractConstraint
@@ -828,13 +829,12 @@ newAbstractConstraint mbName c resolve = do
     -- its ok to ignore when _b is False (the pattern might never
     -- be instantiated), and when _assgns is not null (the assignments
     -- are for dummy variables anyway)
-    i <- Instantiation <$> liftIO newUnique
     -- ok to ignore satisfiable, since the group might
     -- never be instantiated
     -- assgns should probably not be ignored, but it doesn't hurt to
     -- ignore it. It just means certain revisions will be re-run multiple times
     -- (but this is not likely to be expensive).
-    (_b, _assgns) <- liftIO $ runReadWriteAbstract resolve i CreatingConstraint c'
+    (_b, _assgns) <- liftIO $ runReadWriteAbstract resolve CreatingConstraint c'
     return ()
 
 {-
