@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 module VertexColoring where
 
@@ -42,7 +43,7 @@ instantiations together.
 
 import Prelude hiding (mapM)
 
--- import Control.Applicative
+import Control.Monad.IO.Class
 import qualified Data.Map as M
 import qualified Data.Set as S
 import Data.Traversable
@@ -72,7 +73,7 @@ mix Unequal Equal = Unequal
 mix Unequal Unequal = Equal
 
 main = do
-  (satisfiable, ret) <- solve learner problem (mapM readVar)
+  (satisfiable, ret) <- solve learner problem (\xs -> debug "reading solution" >> mapM readVar xs)
   print satisfiable
   print ret
 
@@ -89,7 +90,8 @@ learner constraints = sequence_ [combine c1 c2 | c1 <- constraints, c2 <- constr
 lift Equal = (==)
 lift Unequal = (/=)
 
-constrain nc rel v1 v2 = nc (Just $ show v1 ++ show rel ++ show v2) c op where
+constrain nc rel v1 v2 = nc (Just name) c op where
+  name = show v1 ++ show rel ++ show v2
   c = Constraint rel v1 v2
   -- Realistically, this would read the value of one variable, and
   -- then set the other to the opposite, which would cause
@@ -99,11 +101,13 @@ constrain nc rel v1 v2 = nc (Just $ show v1 ++ show rel ++ show v2) c op where
   -- revise function much dumber. It will report on whether a constraint
   -- is still satisfiable, but will make no attempt to propagate implications.
   op = do
+    debug $ "first read on " ++ name
     vals1 <- readVar v1
     case S.toList vals1 of
       [] -> return False
       [_,_] -> return True
       [x] -> do
+        debug $ "second read on " ++ name
         vals2 <- readVar v2
         case S.toList vals2 of
           [] -> return False
@@ -139,3 +143,5 @@ something = somethingElse <*> newVar (Just "x") colors <*> newVar (Just "y") col
   -}
 
 connected nc = constrain nc Unequal
+
+debug = liftIO . putStrLn

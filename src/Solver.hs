@@ -742,12 +742,12 @@ pop set  = do
   return (Just v)
 
 instance Level Abstract where
-  getInstanceVar _ (VarInstance _) = liftIO . throwIO . userError $ "internal bug: tried to find instance variable while in Abstract monad"
-  getInstanceVar _ (VarAbstract av) = do
+  getInstanceVar str (VarInstance _) = liftIO . throwIO . userError $ "internal bug: tried to find instance variable while in Abstract monad: " ++ str
+  getInstanceVar str (VarAbstract av) = do
     inst <- askInstantiation
     liftIO $ do
       instances <- readIORef (_abstractVarInstances av)
-      let croak = throwIO . userError
+      let croak s = throwIO . userError $ s ++ ": " ++ str
       case M.lookup inst instances of
         Nothing -> croak $ "attempted to read from wrong abstract var"
         Just iv ->
@@ -798,7 +798,7 @@ instance Level Abstract where
     liftIO $ do
       inject (untypeAbstractVar av)
       instances <- readIORef (_abstractVarInstances av)
-      let croak = throwIO . userError
+      let croak s = throwIO . userError $ s ++ ": " ++ "readVar (abstract)"
       case M.lookup inst instances of
         Nothing -> croak $ "attempted to read from wrong abstract var"
         Just iv ->
