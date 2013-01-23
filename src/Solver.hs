@@ -216,7 +216,7 @@ data NewContext = NewContext {
   _newContextInstantiation :: Maybe Instantiation,
   _newContextNext :: IORef Int } -- todo: this would actually make more sense as an IO Int, which would also abstract away ioref vs mvar, in case that ever changes
 
-newtype Instantiation = Instantiation Unique
+data Instantiation = Instantiation Int Unique
   deriving (Eq, Ord)
 
 -- | Problem definition monad.
@@ -515,7 +515,8 @@ runNewAbstract
 runNewAbstract (NewAbstract inner) c = do
   ((ret, inst), s, ()) <- runRWST inner c Satisfiable -- check bool!
   let instMaker = do
-        i <- Instantiation <$> liftIO newUnique
+        id <- nextId
+        i <- Instantiation id <$> liftIO newUnique
         local (set newContextInstantiation (Just i)) inst
   return (ret, s, instMaker)
 
@@ -750,7 +751,7 @@ instance Level Abstract where
         -- todo: actually, if setVar and shrinkVar make modifications
         -- to this dummy variable, we really ought to remember the
         -- changes
-        dummyInstantiation <- Instantiation <$> newUnique
+        dummyInstantiation <- Instantiation (-1) <$> newUnique
         dummyCandidates <- newIORef (S.fromList . map fst . varCommonValues . _abstractVarCommon $ av)
         dummyConstraints <- newIORef S.empty
         dummyNI <- NameAndIdentity "dummy variable" <$> newUnique
@@ -781,18 +782,17 @@ instance Level Abstract where
     let iv = do
           var <- do
             -- very different name creation
-            ivName <- do
-              id <- nextId
-              return . (("instance " ++ show id ++ " of ") ++) . name . _varCommonIdentity . _abstractVarCommon $ u'
             identity <- liftIO newUnique
             -- shared
             candidates <- liftIO . newIORef . M.keysSet $ values
             -- create empty set of constraints (shared)
             constraints <- liftIO $ newIORef S.empty
             mbInst <- view newContextInstantiation
-            inst <- liftIO $ case mbInst of
+            inst@(Instantiation which _) <- liftIO $ case mbInst of
               Nothing -> throwIO . userError . internalBug $ "no instantiation for instantiated variable"
               Just inst -> return inst
+            ivName <- do
+              return . (("instance " ++ show which ++ " of ") ++) . name . _varCommonIdentity . _abstractVarCommon $ u'
             let ret = InstanceVar (Just (u', inst)) candidates constraints (set varCommonIdentity (NameAndIdentity ivName identity) (_abstractVarCommon u'))
             liftIO . modifyIORef (_abstractVarInstances u') . M.insert inst $ ret
             return ret
