@@ -1,0 +1,240 @@
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
+module Types where
+
+import Control.Applicative
+import Control.Lens
+import Control.Monad.IO.Class
+import Control.Monad.RWS
+import Data.IORef
+import qualified Data.Map as M
+import qualified Data.Set as S
+import Data.Unique
+
+-- | Candidates values to be assigned to a variable
+-- are given as the keys of the map. The associated
+-- value is any side effect you want to happen when the variable is assigned.
+--
+-- Although any IO action can be put into the side effect, its main
+-- purpose is to create new variables and new constraints on those variables.
+-- For example, if your problem has, conceptually, a variable whose value
+-- is some unknown list, you can create a variable which represents the two
+-- possible constructors for the list: Cons and Nil. You can define the
+-- side effect for the Cons case as creating two new variables:
+-- one for the value in the head and the other for the constructor of the
+-- tail.
+--
+-- You should not rely on the invocation of the side effect as an indication
+-- that an instance variable has actually been assigned that value. The
+-- solver will sometimes do a dry run on the side effects of multiple values,
+-- so that it can give priority to assignments producing fewer new variables
+-- and constraints.
+type Values constraint a = M.Map a (ValueEffect constraint a)
+
+type ValueEffect c a = Var c a -> New Instance c ()
+
+-- | Used both for vars and constraints!
+data NameAndIdentity = NameAndIdentity {
+  name :: String,
+  identity :: Unique }
+
+data VarCommon c a = VarCommon {
+  _varCommonIdentity :: NameAndIdentity,
+
+  -- Ordered by cheapest choice, that is, if x comes before y,
+  -- then the product of the sizes of x's generated variables will
+  -- be no more than y's product.
+  -- (constraints generated is not a factor in ordering, since they
+  -- don't actually make the problem larger)
+  varCommonValues :: [(a, ValueEffect c a)] }
+
+-- | An untyped container for both 'Avar's and 'Ivar's. Use it as an argument
+-- to the 'newConstraint' function.
+data Var constraint a
+  = VarAbstract (AbstractVar constraint a)
+  | VarInstance (InstanceVar constraint a)
+
+data AbstractVar c a = AbstractVar {
+  _abstractVarInstances :: IORef (M.Map Instantiation (InstanceVar c a)),
+
+  -- | A partial set of constraints constraining this var. Constraints not in this set
+  -- but which constrain this var do not need to be revised when this var
+  -- is assigned.
+  -- For example, if the constraint is a \/ b \/ c, then I should put the
+  -- constraint in two of the vars, but I do not need to put it in the
+  -- third, since I can only make a deduction when there is one
+  -- remaining unassigned variable.
+  -- The collection is partial if the client's constraints exit early.
+  _abstractVarAbstractConstraints :: IORef (Constraints Abstract c),
+
+  _abstractVarCommon :: VarCommon c a }
+
+data InstanceVar c a = InstanceVar {
+  _instanceVarAbstractVar :: Maybe (AbstractVar c a, Instantiation),
+
+  -- | If empty, problem is in conflict.
+  -- If singleton, then a value has been chosen.
+  -- If more than one item, a choice has yet to be made.
+  _instanceVarCandidates :: IORef (S.Set a),
+
+  -- | Partial list, etc. See comment on _abstractConstraints
+  _instanceVarConstraints :: IORef (Constraints Instance c),
+  _instanceVarCommon :: VarCommon c a }
+
+type Constraints l c = S.Set (Constraint l c)
+
+  {-
+
+  -- | Everytime ivarCandidates is reduced to a singleton, that value is
+  -- added here. If it already exist in here, then the associated (New ())
+  -- in the Avar is not executed, since we know it has already been executed
+  -- once. If a constraint using this ivar is garbage collected, then the
+  -- value is removed from here, so that future re-assignments will
+  -- re-instantiate the constraint.
+  _previousAssignments :: M.Map a (S.Set (Constraint constraint)) } -- todo: this value is still not being checked
+  -}
+
+data UntypedAbstractVar c = UntypedAbstractVar {
+  untypedAbstractVarIdentity :: NameAndIdentity,
+  untypedAbstractVarAbstractConstraints :: IORef (Constraints Abstract c) }
+
+type UntypedValues c = [IO (Assignment c)]
+
+-- | An instance variable with the type stripped, so that it can
+-- be stored in homogoneous collections.
+data UntypedInstanceVar c = UntypedInstanceVar {
+  untypedInstanceVarIdentity :: NameAndIdentity,
+  -- | A sequence of calls to setVar for each remaining candidate.
+  untypedInstanceVarValues :: IO (UntypedValues c),
+  untypedInstanceVarInstanceConstraints :: IORef (Constraints Instance c),
+  untypedInstanceVarAbstractVar :: Maybe (UntypedAbstractVar c, Instantiation) }
+
+-- is there a way to keep the types of the vars in this data structure?
+-- maybe wrap up the uses of the Constraint somehow?
+data Constraint l c = Constraint {
+  constraintIdentity :: NameAndIdentity,
+  constraintConstraint :: Maybe c, -- if Nothing, then this constraint is a no-good generated by the solver (not by the client). (The no-good values are embedded in the resolver.)
+  constraintResolve :: ReadWrite l c Bool,
+
+  -- | False for problem clauses, True for learnt clauses, otherwise depends
+  -- on the variable which created it.
+  constraintCollectable :: IO Bool,
+
+  -- | Removes this constraint from all variables that it was previously
+  -- being watched on. This should be called right before constraintResolve
+  -- is run. Maybe. It probably doesn't hurt to leave the injections in,
+  -- and it might make things faster to leave things as is.
+  -- This resets itself everytime it is run.
+  constraintUninject :: IORef (IO ()) }
+
+data InstanceConstraint c
+  = InstanceConstraint (Constraint Instance c)
+  | InstantiatedConstraint (Constraint Abstract c) Instantiation
+
+type AbstractInner c = RWST (IORef Int) () Satisfiable IO
+-- todo: push satisfiable into the writer
+type InstanceInner c = RWST NewContext ([UntypedInstanceVar c], [Constraint Instance c], [Assignment c]) Satisfiable IO
+
+data Satisfiable = Satisfiable | Contradiction
+  deriving (Bounded, Enum, Eq, Ord, Read, Show)
+
+-- | A monad for creating variables and constraints.
+data New level constraint a where
+  NewAbstract
+    :: AbstractInner constraint (a, New Instance constraint a)
+    -> New Abstract constraint a
+  NewInstance
+    :: InstanceInner constraint a
+    -> New Instance constraint a
+
+data NewContext = NewContext {
+  _newContextCollectable :: IO Bool,
+  _newContextInstantiation :: Maybe Instantiation,
+  _newContextNext :: IORef Int } -- todo: this would actually make more sense as an IO Int, which would also abstract away ioref vs mvar, in case that ever changes
+
+data Instantiation = Instantiation Int Unique
+  deriving (Eq, Ord)
+
+-- | Problem definition monad.
+newtype Init constraint a = Init (RWST (IORef Int) [Constraint Abstract constraint] () (New Instance constraint) a)
+
+-- | A monad for making assignments to variables. A constraint calls 'readVar'
+-- to determine if one of its variables can be deduced from the others,
+-- in which case it calls 'setVar'.
+--
+-- Abstract constraints should only read and write abstract variables.
+-- Instance constraints should only read and write instance variables.
+-- Doing otherwise will raise an error.
+--
+-- Implementations should be idempotent. That is, if a ReadWrite monad
+-- is run twice (and no variables have changed in between), it should
+-- read from the same variables and leave them in the same state
+-- as if it were only run once. A constraint will inject itself into
+-- each variable that it reads from, so that it can be re-fired
+-- when that variable changes. Failing to maintain the idempotency invariant
+-- can cause the solver to return incorrect assignments.
+--
+-- Idempotency is not required when the read variables have been changed
+-- by different constraints or the solver itself. It is permissible
+-- and encouraged for the ReadWrite monad to exit early
+-- when it determies that the constraint is still satisfiable.
+-- For example, boolean disjunctions can exit after reading only two
+-- variables, if both of their literals can still be assigned true.
+-- (This is known as the 'watched literal' optimization.)
+--
+-- The ReadWrite monad wraps the IO monad, to make debugging easier.
+-- However, the solver assumes that the ReadWrite monad is stateless.
+newtype ReadWrite level constraint a = ReadWrite (RWST (ReadWriteContext level constraint) [Assignment constraint] () IO a)
+  deriving (Applicative, Functor, Monad, MonadIO)
+  -- if level is Instance, read context will be nothing
+  -- if level is Abstract, read context with be just the instantiation.
+
+-- | Injects current constraint into given var
+type Injector untyped c = untyped c -> IO ()
+
+data ReadWriteContext level c where
+  InstanceReadWriteContext
+    :: Injector UntypedInstanceVar c
+    -> ReadWriteContext Instance c
+  AbstractReadWriteContext
+    :: ReadWriteMode
+    -> Injector UntypedAbstractVar c
+    -> ReadWriteContext Abstract c
+
+data ReadWriteMode = CreatingConstraint | RevisingConstraint Instantiation
+  deriving (Eq, Ord)
+
+data Assignment c = Assignment {
+  assignmentVar :: UntypedInstanceVar c,
+  assignmentEffect :: New Instance c (),
+  assignmentUndo :: IO () }
+
+-- phantom types
+data Abstract
+data Instance
+
+newtype Solve c a = Solve (RWST (SolveContext c) () (SolveState c) IO a)
+  deriving (Applicative, Functor, Monad, MonadIO)
+
+data SolveContext c = SolveContext {
+  _solveNext :: IORef Int,
+  _solveLearner :: [c] -> New Instance c () }
+
+data SolveState c = SolveState {
+  _assignedVars :: [AssignmentFrame c], -- head is most recently assigned (acts like a stack)
+  _unassignedVars :: S.Set (UntypedInstanceVar c),
+  _unrevisedConstraints :: S.Set (InstanceConstraint c),
+  _learntInstanceConstraints :: S.Set (Constraint Instance c),
+  _learntAbstractConstraints :: S.Set (Constraint Abstract c) }
+
+data AssignmentFrame c = AssignmentFrame {
+  frameUndo :: IO (),
+  frameUntriedValues :: UntypedValues c,
+  frameDecisionLevel :: Bool }
+
+makeLenses ''Var
+makeLenses ''VarCommon
+makeLenses ''SolveState
+makeLenses ''SolveContext
+makeLenses ''NewContext
