@@ -48,6 +48,7 @@ import qualified Data.Map as M
 import qualified Data.Set as S
 import Data.Traversable
 
+import Debugger
 import Solver
 
 data Color = Black | White
@@ -73,7 +74,8 @@ mix Unequal Equal = Unequal
 mix Unequal Unequal = Equal
 
 main = do
-  (satisfiable, ret) <- solve learner problem (\xs -> debug "reading solution" >> mapM readVar xs)
+  debugger <- cliDebugger
+  (satisfiable, ret) <- solve learner problem (\xs -> debug "reading solution" >> mapM readVar xs) debugger
   print satisfiable
   print ret
 

@@ -1,5 +1,6 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
 module Types where
 
@@ -219,7 +220,8 @@ newtype Solve c a = Solve (RWST (SolveContext c) () (SolveState c) IO a)
 
 data SolveContext c = SolveContext {
   _solveNext :: IORef Int,
-  _solveLearner :: [c] -> New Instance c () }
+  _solveLearner :: [c] -> New Instance c (),
+  _solveIntercept :: Debugger c -> Stage c -> IO () }
 
 data SolveState c = SolveState {
   _assignedVars :: [AssignmentFrame c], -- head is most recently assigned (acts like a stack)
@@ -231,7 +233,35 @@ data SolveState c = SolveState {
 data AssignmentFrame c = AssignmentFrame {
   frameUndo :: IO (),
   frameUntriedValues :: UntypedValues c,
-  frameDecisionLevel :: Bool }
+  frameDecisionLevel :: Bool,
+  frameNameAndIdentity :: NameAndIdentity -- this is only used by the debugger
+  }
+
+type UntypedVariable = (String, Unique)
+
+data Debugger constraint = Debugger {
+  peekInstanceVar :: forall a. Var constraint a -> Maybe (IO (S.Set a)),
+  peekAbstractVar :: forall a. Var constraint a -> Maybe (IO (M.Map Int (Var constraint a))),
+  identify :: forall a. Var constraint a -> Unique,
+  assignments :: [UntypedVariable],
+  outstandingConstraints :: S.Set (constraint, Maybe Int),
+  -- todo: this will need to change when I add nogoods
+  injectedConstraints :: forall a. Var constraint a -> IO (Maybe Int, S.Set constraint)
+}
+
+data Moment = Before | After
+  deriving (Bounded, Enum, Eq, Ord, Read, Show)
+
+data Stage constraint
+  = Uninjecting constraint Moment
+  | Injecting UntypedVariable constraint Moment
+  | PoppedConstraint (Maybe constraint)
+  | PoppedVar (Maybe UntypedVariable)
+  | CountedValues UntypedVariable Int
+  | JumpingBack Moment
+  | SteppingBack Moment
+  | RunningSideEffect UntypedVariable Moment
+  | AccumulatingAffectedConstraints Moment
 
 makeLenses ''Var
 makeLenses ''VarCommon

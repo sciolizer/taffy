@@ -416,11 +416,12 @@ solve
   => ([constraint] -> New Instance constraint ()) -- ^ Constraint learning function, for conflict-directed constraint learning. The head of the given list is the constraint which produced a contradiction.
   -> Init constraint a -- ^ Problem definition. You should return the 'Var's that you plan on reading from (using 'readIvar') when a solution is found.
   -> (a -> ReadWrite Instance constraint b) -- ^ solution reader
+  -> (Debugger constraint -> Stage constraint -> IO ())
   -> IO (Bool, b) -- ^ 'False' iff no solution exists. Values returned from 'readIvar' after solve completes are available only for debugging purposes if 'False' is returned (no guarantees are made about their values); otherwise they will be singleton sets containing the satisfying assignment.
-solve learner definition reader = do
+solve learner definition reader debugger = do
   (a, satisfiable, idsource, ivars, iconstraints, _aconstraints) <- runInit definition
   let ss = SolveState [] (S.fromList ivars) (S.fromList (map InstanceConstraint iconstraints)) S.empty S.empty
-  completed <- if satisfiable == Contradiction then return False else evalSolve loop (SolveContext idsource learner) ss
+  completed <- if satisfiable == Contradiction then return False else evalSolve loop (SolveContext idsource learner debugger) ss
   dummyIdentity <- newUnique
   dummyUninjector <- newIORef (return ())
   let dummyConstraint = Constraint (NameAndIdentity "solution reader dummy constraint" dummyIdentity) Nothing (return True) (return False) dummyUninjector
@@ -445,14 +446,14 @@ loop = do
               unassignedVars %= S.insert v
               jumpback
             [_] -> do
-              assignedVars %= (AssignmentFrame (return ()) [] False :)
+              assignedVars %= (AssignmentFrame (return ()) [] False (untypedInstanceVarIdentity v) :)
               loop
             (x:xs) -> choose x xs
     Just (InstantiatedConstraint _ _) -> liftIO . throwIO . userError $ "abstract constraints not yet supported"
     Just (InstanceConstraint c) -> do
       liftIO $ uninject c
       (satisfiable, as) <- liftIO $ runReadWriteInstance (constraintResolve c) c
-      assignedVars %= (reverse (map (\a -> AssignmentFrame (assignmentUndo a) [] False) as) ++)
+      assignedVars %= (reverse (map (\a -> AssignmentFrame (assignmentUndo a) [] False (untypedInstanceVarIdentity $ assignmentVar a)) as) ++)
       if not satisfiable then jumpback else do
       propagateEffects as
 
@@ -475,7 +476,7 @@ stepback (x:xs) = do
 
 choose x xs = do
   assignment <- liftIO x
-  assignedVars %= (AssignmentFrame (assignmentUndo assignment) xs True :)
+  assignedVars %= (AssignmentFrame (assignmentUndo assignment) xs True (untypedInstanceVarIdentity $ assignmentVar assignment) :)
   propagateEffects [assignment]
 
 -- propagateEffects :: (Ord c) => [Assignment c] -> Solve c Bool
@@ -709,3 +710,37 @@ debug = liftIO . putStrLn
 
 -- todo: make sure that readVar, setVar, and shrinkVar all look at their ReadWrite
 -- context and inject constraints into themselves if they need to
+
+makeDebugger :: (Ord c) => Solve c (Debugger c)
+makeDebugger = z where
+  z = do
+    assignments <- theAssignments
+    unrevised <- theUnrevisedConstraints
+    return $ Debugger toPeekInstanceVar toPeekAbstractVar theIdentity assignments unrevised theInjectedConstraints
+  toPeekInstanceVar (VarAbstract _) = Nothing
+  toPeekInstanceVar (VarInstance iv) = Just $ readIORef (_instanceVarCandidates iv)
+  toPeekAbstractVar (VarInstance _) = Nothing
+  toPeekAbstractVar (VarAbstract av) = Just $ normalize <$> readIORef (_abstractVarInstances av)
+  normalize :: M.Map Instantiation (InstanceVar c a) -> M.Map Int (Var c a)
+  normalize = M.fromList . map (\(Instantiation i _, iv) -> (i, VarInstance iv)) . M.toList
+  theIdentity v = identity . _varCommonIdentity . varCommon $ v
+  theAssignments = do
+    vrs <- use assignedVars
+    return . map (\f -> let ni = frameNameAndIdentity f in (name ni, identity ni)) $ vrs
+  theUnrevisedConstraints = S.fromList . concatMap strip . S.toList <$> use unrevisedConstraints -- todo: nogoods
+  strip (InstanceConstraint (Constraint _ Nothing _ _ _)) = []
+  strip (InstanceConstraint (Constraint _ (Just c) _ _ _)) = [(c, Nothing)]
+  strip (InstantiatedConstraint (Constraint _ Nothing _ _ _) _) = []
+  strip (InstantiatedConstraint (Constraint _ (Just c) _ _ _) (Instantiation i _)) = [(c, Just i)]
+  -- todo: nogoods
+  theInjectedConstraints :: (Ord c) => Var c a -> IO (Maybe Int, S.Set c)
+  theInjectedConstraints (VarAbstract av) = (Nothing,) . S.fromList . concatMap unwrap . S.toList <$> readIORef (_abstractVarAbstractConstraints av)
+  theInjectedConstraints (VarInstance iv) = do
+    ics <- readIORef (_instanceVarConstraints iv)
+    (i, acs) <- case _instanceVarAbstractVar iv of
+             Nothing -> return (Nothing, S.empty)
+             Just (av, (Instantiation i _)) -> (Just i,) <$> readIORef (_abstractVarAbstractConstraints av)
+    let mkSet = S.fromList . concatMap unwrap . S.toList
+    return (i, S.union (mkSet ics) (mkSet acs))
+  unwrap (Constraint _ Nothing _ _ _) = []
+  unwrap (Constraint _ (Just c) _ _ _) = [c]
