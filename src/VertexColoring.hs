@@ -126,6 +126,7 @@ problem = do
   make (connected newInstanceConstraint g h)
   return [a,b,c,d,e,f,g,h,i,j,k,l,m,n]
 
+setTo _ var | show var == "stub variable" = return ()
 setTo val var = debug $ show var ++ " set to " ++ show val
 
 colors = M.fromList [(Black, setTo Black),(White, setTo White)]

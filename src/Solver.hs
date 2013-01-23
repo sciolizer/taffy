@@ -427,7 +427,9 @@ newConstraint' mbName c resolve = do
   return c'
 
 uninject :: Constraint l c -> IO ()
-uninject c = join $ readIORef (constraintUninject c)
+uninject c = do
+  debug $ "uninjecting for " ++ show c
+  join $ readIORef (constraintUninject c)
 
 deriving instance (Eq c) => Eq (InstanceConstraint c)
 deriving instance (Ord c) => Ord (InstanceConstraint c)
@@ -577,9 +579,10 @@ runReadWriteAbstract (ReadWrite m) mode c = do
   let inject = makeInjector untypedAbstractVarAbstractConstraints c
   evalRWST m (AbstractReadWriteContext mode inject) ()
 
-makeInjector :: (Ord c) => (untyped c -> IORef (Constraints l c)) -> Constraint l c -> Injector untyped c
+makeInjector :: (Show (untyped c), Ord c) => (untyped c -> IORef (Constraints l c)) -> Constraint l c -> Injector untyped c
 makeInjector getConstraints c var = do
   let modifier = modifyIORef (getConstraints var)
+  debug $ "injecting into " ++ show var
   modifier (S.insert c)
   modifyIORef (constraintUninject c) (modifier (S.delete c) >>)
 
@@ -717,9 +720,12 @@ propagateEffects as = do
     instanceConstraints <- liftIO . readIORef . untypedInstanceVarInstanceConstraints $ uiv
     unrevisedConstraints %= S.union (S.mapMonotonic InstanceConstraint instanceConstraints)
     case untypedInstanceVarAbstractVar uiv of
-      Nothing -> return ()
+      Nothing -> do
+        debug $ "instance var does not appear to have an abstract var"
+        return ()
       Just (uav, inst) -> do
         acs <- liftIO . readIORef $ untypedAbstractVarAbstractConstraints uav
+        debug $ "instance var DOES have an abstract var; adding " ++ show (S.size acs) ++ " related constraints now"
         unrevisedConstraints %= S.union (S.mapMonotonic (flip InstantiatedConstraint inst) acs)
   if null newAssignments then loop else propagateEffects newAssignments
 
