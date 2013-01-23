@@ -126,7 +126,9 @@ problem = do
   make (connected newInstanceConstraint g h)
   return [a,b,c,d,e,f,g,h,i,j,k,l,m,n]
 
-colors = M.fromList [(Black, \_ -> return ()),(White, \_ -> return ())]
+setTo val var = debug $ show var ++ " set to " ++ show val
+
+colors = M.fromList [(Black, setTo Black),(White, setTo White)]
 
 grouped :: New Abstract Constraint [Vertex]
 grouped = sequenceA (map var ['A'..'G']) where
