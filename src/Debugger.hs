@@ -21,8 +21,8 @@ showStage x =
     JumpingBack After -> "after jumping back"
     SteppingBack Before -> "before stepping back"
     SteppingBack After -> "after stepping back"
-    RunningSideEffect _ Before -> "before running side effect"
-    RunningSideEffect _ After -> "after running side effect"
+    WillRunSideEffect _ -> "before running side effect"
+    RanSideEffect _ _ _ -> "after running side effect"
     AccumulatingAffectedConstraints Before -> "before accumulating affected constraints"
     AccumulatingAffectedConstraints After -> "after accumulating affected constraints"
 
