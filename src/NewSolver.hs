@@ -1,9 +1,15 @@
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 module NewSolver where
 
 import Control.Applicative
+import Control.Exception
 import Control.Lens
 import Control.Monad.IO.Class
 import Control.Monad.RWS
@@ -18,12 +24,14 @@ type ConstraintId = Int
 
 data SolveContext c v = SolveContext {
   _learn :: [c] -> IO [(c, [c])], -- fst is new constraint, snd is the constraints that were sufficient to produce the new constraint
-  _revise :: c -> ReadWrite c v ()
+  _revise :: c -> ReadWrite c v (),
+  _coverage :: c -> [VarId]
   }
 
 data SolveState c v = SolveState {
   _isomorphisms :: [Substitution], -- have to find a better data structure for this; this data structure stores both directions of each isomorphism
   _constraints :: IM.IntMap c,
+  _vars :: S.Set Int, -- IS.IntSet, {- VarId -} -- todo: switch to IntSet
   _learnts :: IM.IntMap c,
   _watches :: IM.IntMap {- VarId -} IS.IntSet {- ConstraintId -}, -- , M.Map v (S.Set c)), -- can make this slightly faster by indexing not just on variable, but on variable,value pairs, if constraint revision functions can communicate 
   _values :: IM.IntMap (S.Set v),
@@ -35,16 +43,26 @@ data SolveState c v = SolveState {
 
 type Substitution = M.Map VarId VarId
 
-newtype ReadWrite c v a = ReadWrite (WriterT [VarId] (Solve c v) a)
+newtype ReadWrite c v a = ReadWrite (WriterT [(VarId, Maybe v)] (Solve c v) a)
   deriving (Applicative, Functor, Monad, MonadIO)
 
 newtype Solve c v a = Solve (RWST (SolveContext c v) () (SolveState c v) IO a)
   deriving (Applicative, Functor, Monad, MonadIO)
 
+deriving instance MonadReader (SolveContext c v) (Solve c v)
+deriving instance MonadState (SolveState c v) (Solve c v)
+
 makeLenses ''SolveContext
 makeLenses ''SolveState
 
-runReadWrite :: ReadWrite c v a -> Solve c v (a, [VarId])
+-- should have an either monad in here
+-- quit early if we set a variable to be empty
+-- question: what should the constraint be watching
+-- in that case? This is easy enough if we just
+-- say that watchers always grows, and never shrinks
+-- (well, except for learnt constraints, which
+-- can be garbage collected)
+runReadWrite :: ReadWrite c v a -> Solve c v (Maybe (a, [(VarId, Maybe v)], Solve c v () {- undo -}))
 runReadWrite = undefined
 
 runSolve :: Solve c v a -> SolveContext c v -> SolveState c v -> IO (a, SolveState c v)
@@ -70,20 +88,22 @@ shrinkVar :: VarId -> v -> ReadWrite c v ()
 shrinkVar = undefined
 
 solve
-  :: forall c v. [c]
+  :: forall c v. (Ord v) => [c]
   -> Int -- number of variables
   -> S.Set v -- all possible values of a variable; todo: find a more compact representation
   -> [[(VarId,VarId)]] -- isomorphisms
+  -> (c -> [VarId])
   -> (c -> ReadWrite c v ())
   -> ([c] -> IO [(c, [c])])
   -> IO (Maybe [v]) -- todo: figure out how caller is supposed to read newly created variables
-solve constraints numVariables values isos revise learn = z where
+solve constraints numVariables values isos cov revise learn = z where
   varIds = [0..(numVariables - 1)]
-  sc = SolveContext learn revise
+  sc = SolveContext learn revise cov
   ss :: SolveState c v
   ss = SolveState
          (mkSubstitutions isos) -- isomorphisms
          (IM.fromList (zip [0..] constraints)) -- constraints
+         (S.fromList varIds) -- vars
          IM.empty -- learnts
          (IM.fromList (zip varIds (repeat IS.empty))) -- watches
          (IM.fromList (zip varIds (repeat values))) -- values
@@ -103,9 +123,76 @@ solve constraints numVariables values isos revise learn = z where
     (satisfiable, ss') <- runSolve loop sc ss
     return $ if not satisfiable then Nothing else Just (solution ss')
 
-loop = undefined
+loop :: (Ord v) => Solve c v Bool
+loop = do
+  mbc <- pop unrevised
+  case mbc of
+    Nothing -> do
+      -- debug $ PoppedConstraint Nothing
+      mbv <- pop vars
+      case mbv of
+        Nothing -> do
+          -- debug $ PoppedVar Nothing
+          return True
+        Just vid -> do
+          -- debug $ PoppedVar (Just $ error "popped var not implemented")
+          mbVals <- use (values.at vid)
+          -- debug $ CountedValues (error "counted values not implemented") (length vals)
+          case S.toList <$> mbVals of
+            Nothing -> liftIO . throwIO . internalBugIO $ "lookup failed"
+            Just [] -> do
+              vars %= S.insert vid
+              jumpback
+            Just (val:vals) -> do
+              trail %= ((vid, S.fromList vals) :)
+              cs <- watchers vid val
+              unrevised %= S.union cs
+              loop
+    Just cid -> do
+      mbConstraint <- use (constraints.at cid)
+      case mbConstraint of
+        Nothing -> liftIO . throwIO . internalBugIO $ "could not lookup constraint by id"
+      -- debug $ PoppedConstraint (Just $ error "popped constraint not implemented")
+        Just c -> do
+          uninject c
+          reviser <- view revise
+          e <- runReadWrite (reviser c)
+          case e of
+            -- todo: jumpback probably needs to wipe clean the collection of
+            -- constraints
+            Nothing -> jumpback
+            Just ((), vids, undo) -> do
+              -- find out if any of the vids are now singletons
+              -- if so, then record the current constraint as being
+              -- their "reason"
+              -- also: extend trail with the new assignments
+              error ("todo: record reason and record assignment")
+              loop
+              {-
+              (satisfiable, as) <- liftIO $ runReadWriteInstance (constraintResolve c) c
+              assignedVars %= (reverse (map (\a -> AssignmentFrame (assignmentUndo a) [] False (untypedInstanceVarIdentity $ assignmentVar a)) as) ++)
+              if not satisfiable then jumpback else do
+              propagateEffects as
+              -}
 
+pop :: MonadState s m => Simple Lens s (S.Set a) -> m (Maybe a)
+pop set  = do
+  s <- use set
+  if S.null s then return Nothing else do
+  let (v, s') = S.deleteFindMin s -- todo: better variable ordering
+  set .= s'
+  return (Just v)
+
+jumpback :: Solve c v Bool
+jumpback = undefined
+
+uninject :: c -> Solve c v ()
+uninject _ = return () -- strictly speaking, uninjecting is only an optimization, so I'll wait until later to implement it.
 internalBug = error
+internalBugIO = userError
+
+watchers :: VarId -> v -> Solve c v (S.Set ConstraintId)
+watchers = undefined
 
 -- todo: we are still missing the substituter, without which we can't
 -- tell if a constraint we create is actually a valid one
@@ -117,7 +204,7 @@ class Values values value | values -> value where
   subtraction :: values -> values -> values
   isEmpty :: values -> Bool
 
-instance Values (S.Set a) a
+-- instance Values (S.Set a) a
 
 {-
 Internally, isomorphisms can be represented as Sides.
