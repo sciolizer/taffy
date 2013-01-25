@@ -6,6 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
 module NewSolver where
 
 import Control.Applicative
@@ -62,7 +63,8 @@ makeLenses ''SolveState
 -- say that watchers always grows, and never shrinks
 -- (well, except for learnt constraints, which
 -- can be garbage collected)
-runReadWrite :: ReadWrite c v a -> Solve c v (Maybe (a, [(VarId, Maybe v)], Solve c v () {- undo -}))
+-- the given c will be injected into every variable that is examined
+runReadWrite :: ReadWrite c v a -> c -> Solve c v (Maybe (a, [(VarId, Maybe v)], Solve c v () {- undo -}))
 runReadWrite = undefined
 
 runSolve :: Solve c v a -> SolveContext c v -> SolveState c v -> IO (a, SolveState c v)
@@ -145,6 +147,7 @@ loop = do
               jumpback
             Just (val:vals) -> do
               trail %= ((vid, S.fromList vals) :)
+              reason.at vid %= just Nothing
               cs <- watchers vid val
               unrevised %= S.union cs
               loop
@@ -156,7 +159,7 @@ loop = do
         Just c -> do
           uninject c
           reviser <- view revise
-          e <- runReadWrite (reviser c)
+          e <- runReadWrite (reviser c) c
           case e of
             -- todo: jumpback probably needs to wipe clean the collection of
             -- constraints
@@ -166,14 +169,29 @@ loop = do
               -- if so, then record the current constraint as being
               -- their "reason"
               -- also: extend trail with the new assignments
-              error ("todo: record reason and record assignment")
-              loop
+              allVals <- use values
+              let appl :: (a -> b) -> Maybe a -> Maybe b
+                  appl = (<$>)
+              let mbVals = sequence . map (\(vid,_) -> appl (vid,) $ IM.lookup vid allVals) $ vids
+              case mbVals of
+                Nothing -> liftIO . throwIO . internalBugIO $ "some vids' values could not be looked up"
+                Just vals -> do
+                  let singletons = filter ((== 1) . S.size . snd) vals
+                  let update (vid,_) = do
+                        (reason.at vid) %= just (Just cid)
+                        trail %= ((vid, error "not implemented") :)
+                  mapM_ update singletons
+                  loop
               {-
               (satisfiable, as) <- liftIO $ runReadWriteInstance (constraintResolve c) c
               assignedVars %= (reverse (map (\a -> AssignmentFrame (assignmentUndo a) [] False (untypedInstanceVarIdentity $ assignmentVar a)) as) ++)
               if not satisfiable then jumpback else do
               propagateEffects as
               -}
+
+just :: a -> Maybe a -> Maybe a
+just s Nothing = Just s
+just _ (Just _) = internalBug $ "tried to update reason, but found data already there"
 
 pop :: MonadState s m => Simple Lens s (S.Set a) -> m (Maybe a)
 pop set  = do
