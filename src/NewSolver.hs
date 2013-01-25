@@ -44,7 +44,7 @@ data SolveState c v = SolveState {
 
 type Substitution = M.Map VarId VarId
 
-newtype ReadWrite c v a = ReadWrite (WriterT [(VarId, Maybe v)] (Solve c v) a)
+newtype ReadWrite c v a = ReadWrite (RWST c [(VarId, Maybe v)] () (Solve c v) a)
   deriving (Applicative, Functor, Monad, MonadIO)
 
 newtype Solve c v a = Solve (RWST (SolveContext c v) () (SolveState c v) IO a)
@@ -66,6 +66,8 @@ makeLenses ''SolveState
 -- the given c will be injected into every variable that is examined
 runReadWrite :: ReadWrite c v a -> c -> Solve c v (Maybe (a, [(VarId, Maybe v)], Solve c v () {- undo -}))
 runReadWrite = undefined
+-- runRWST (runErrorT undefined) undefined undefined
+--   :: m (Either e a, s, w)
 
 runSolve :: Solve c v a -> SolveContext c v -> SolveState c v -> IO (a, SolveState c v)
 runSolve = undefined
