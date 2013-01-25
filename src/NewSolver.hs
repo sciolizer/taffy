@@ -1,18 +1,28 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 module NewSolver where
 
+import Control.Applicative
 import Control.Lens
+import Control.Monad.IO.Class
+import Control.Monad.RWS
+import Control.Monad.Writer
+import qualified Data.IntMap as IM
+import qualified Data.IntSet as IS
+import qualified Data.Map as M
+import qualified Data.Set as S
 
 type VarId = Int
 type ConstraintId = Int
 
-data SolveContext = SolveContext {
+data SolveContext c v = SolveContext {
   _learn :: [c] -> IO [(c, [c])], -- fst is new constraint, snd is the constraints that were sufficient to produce the new constraint
   _revise :: c -> ReadWrite c v ()
   }
 
 data SolveState c v = SolveState {
-  _isomorphisms :: [Substitution v], -- have to find a better data structure for this; this data structure stores both directions of each isomorphism
+  _isomorphisms :: [Substitution], -- have to find a better data structure for this; this data structure stores both directions of each isomorphism
   _constraints :: IM.IntMap c,
   _learnts :: IM.IntMap c,
   _watches :: IM.IntMap {- VarId -} IS.IntSet {- ConstraintId -}, -- , M.Map v (S.Set c)), -- can make this slightly faster by indexing not just on variable, but on variable,value pairs, if constraint revision functions can communicate 
@@ -23,7 +33,7 @@ data SolveState c v = SolveState {
   _level :: IM.IntMap {- VarId -} Int -- decision level
   }
 
-type Substitution v = M.Map v v
+type Substitution = M.Map VarId VarId
 
 newtype ReadWrite c v a = ReadWrite (WriterT [VarId] (Solve c v) a)
   deriving (Applicative, Functor, Monad, MonadIO)
@@ -60,7 +70,7 @@ shrinkVar :: VarId -> v -> ReadWrite c v ()
 shrinkVar = undefined
 
 solve
-  :: [c]
+  :: forall c v. [c]
   -> Int -- number of variables
   -> S.Set v -- all possible values of a variable; todo: find a more compact representation
   -> [[(VarId,VarId)]] -- isomorphisms
@@ -70,19 +80,23 @@ solve
 solve constraints numVariables values isos revise learn = z where
   varIds = [0..(numVariables - 1)]
   sc = SolveContext learn revise
+  ss :: SolveState c v
   ss = SolveState
          (mkSubstitutions isos) -- isomorphisms
          (IM.fromList (zip [0..] constraints)) -- constraints
          IM.empty -- learnts
-         (IM.fromList (zip varIds IS.empty)) -- watches
-         (IM.fromList (zip varIds S.empty)) -- values
-         (S.fromList constraints) -- unrevised
+         (IM.fromList (zip varIds (repeat IS.empty))) -- watches
+         (IM.fromList (zip varIds (repeat values))) -- values
+         (S.fromList [0..(length constraints - 1)]) -- unrevised
          [] -- trail
          IM.empty
          IM.empty
-  solution = IM.foldl fromSingleton 0 . _values --map (fromSingleton . snd) . IM.toList . _values
-  fromSingleton (i (i', s)) | i /= i' = internalBug $ "unexpected index in IM.foldl: " ++ show i ++ " /= " ++ show i'
-                            | otherwise -> case S.toList s of
+  mkSubstitutions = map M.fromList
+  solution :: SolveState c v -> [v]
+  solution = map fromSingleton . zip [0..] . IM.toAscList . _values --map (fromSingleton . snd) . IM.toList . _values
+  fromSingleton :: (Int, (Int, S.Set v)) -> v
+  fromSingleton (i, (i', s)) | i /= i' = internalBug $ "unexpected index in IM.foldl: " ++ show i ++ " /= " ++ show i'
+                             | otherwise = case S.toList s of
                                              [v] -> v
                                              _ -> internalBug $ "not a singleton: " ++ show (S.size s)
   z = do
@@ -90,3 +104,5 @@ solve constraints numVariables values isos revise learn = z where
     return $ if not satisfiable then Nothing else Just (solution ss')
 
 loop = undefined
+
+internalBug = error
