@@ -106,3 +106,41 @@ solve constraints numVariables values isos revise learn = z where
 loop = undefined
 
 internalBug = error
+
+-- todo: we are still missing the substituter, without which we can't
+-- tell if a constraint we create is actually a valid one
+
+class Values values value | values -> value where
+  singleton :: value -> values
+  fromSingleton :: values -> value
+  intersection :: values -> values -> values
+  subtraction :: values -> values -> values
+  isEmpty :: values -> Bool
+
+instance Values (S.Set a) a
+
+{-
+Internally, isomorphisms can be represented as Sides.
+A side is merely an ordered collection of variable ids.
+type Side = [VarId]
+The transitive closure of all isomorphisms is computed
+(effectively, but not actually), by creating a collection of
+sides.
+type AllIsomorphisms = S.Set (S.Set Side)
+-- for the inner set, every side must have the same size.
+-- different size . size's are allowed (but not required) for the outer set
+If a side x is isomorphic to a side y, then a particular
+subsequence of the side x must be isomorphic to the corresponding
+subsequence of the side y. This necessarily implies that intersections
+of sides are themselves sides.
+It does not imply (nor is it assumed by the solver) that unions
+of sides are also sides.
+
+A side x is isomorphic to a side y only if all constraints
+(both given and yet-to-be-learned) on a subsequence of x are
+also constraints on the corresponding subsequence of y.
+
+Subsequence, here, is a binary function on the indices of a side.
+So, [1, 2, 4] is a valid subsequence of [1, 2, 3, 4, 5], even
+though it skips a number.
+-}
