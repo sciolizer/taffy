@@ -7,9 +7,87 @@ package taffy
  * Time: 9:23 AM
  */
 
+import scala.collection.mutable
+import scala.util.control.Breaks._
 
-class Solver[Constraint,Variable](domain: Domain[Constraint, Variable], problem: Problem[Constraint, Variable]) {
+class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variables, Variable],
+                                               problem: Problem[Constraint, Variables, Variable],
+                                               ranger: Ranger[Variables, Variable]) {
   type VarId = Int
+
+  // private class Var(var values: Variables) {}
+
+  private val variables: mutable.ArrayBuffer[Variables] = mutable.ArrayBuffer()
+  private val watchers: mutable.ArrayBuffer[Set[Constraint]] = mutable.ArrayBuffer()
+
+  private val unrevised: mutable.Set[Constraint] = mutable.Set()
+
+  private val unassigned: mutable.Set[VarId] = mutable.Set()
+  private val trail: mutable.Stack[(VarId, Variables /* untried */, Boolean /* decision variable */)] = mutable.Stack()
+
+  def solve() : Option[Read[Variables, Variable]] = {
+    for (vid <- 0 to problem.numVariables) {
+      variables += problem.candidateValues
+      watchers += Set.empty
+    }
+    unrevised ++= problem.constraints
+
+    while (!unrevised.isEmpty && !unassigned.isEmpty) {
+      var bj = false
+      if (!unrevised.isEmpty) {
+        val constraint = unrevised.head
+        unrevised -= constraint
+        val varsRead = mutable.Queue[VarId]()
+        val undo = mutable.Queue[(VarId, Variables)]()
+        val rw = new ReadWrite[Constraint, Variables, Variable](constraint, variables, varsRead, undo)
+        if (domain.revise(rw, constraint)) {
+          bj = false
+          breakable {
+            for ((vid, original) <- undo) {
+              if (ranger.isEmpty(variables(vid))) {
+                bj = true
+                break()
+              }
+            }
+          }
+        } else {
+          bj = true
+        }
+        if (bj) {
+          for ((vid, original) <- undo) {
+            variables(vid) = original
+          }
+          backjump()
+          if (trail.isEmpty) return None
+        } else {
+          for ((vid, original) <- undo) {
+            val values: Variables = variables(vid)
+            if (ranger.isSingleton(values)) {
+              unassigned -= vid
+              trail.push((vid, ranger.subtraction(original, values), false))
+              unrevised ++= watchers(vid) - constraint
+            }
+          }
+          for (varId <- varsRead) {
+            watchers(varId) += constraint
+          }
+        }
+      } else if (!unassigned.isEmpty) {
+        var vid = unassigned.head // todo: better variable ordering
+        unassigned -= vid
+        val values: Variables = variables(vid)
+        val value = ranger.pick(values) // todo: better value picking
+        unassigned -= vid
+        trail.push((vid, ranger.subtraction(values, ranger.toSingleton(value)), true))
+        unrevised ++= watchers(vid)
+      }
+    }
+    Some(new Read(variables, ranger))
+  }
+
+  private def backjump() {
+
+  }
   /*
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}

@@ -1,6 +1,7 @@
 package taffy
 
 import taffy.ReadWrite.Contains
+import collection.mutable
 
 /**
  * Created with IntelliJ IDEA.
@@ -9,7 +10,10 @@ import taffy.ReadWrite.Contains
  * Time: 9:32 AM
  */
 
-class ReadWrite[Constraint, Variable] {
+class ReadWrite[Constraint, Variables, Variable](constraint: Constraint,
+                                                 variables: mutable.ArrayBuffer[Variables],
+                                                 varsRead: mutable.Queue[Int],
+                                                 undo: mutable.Queue[(Int, Variables)]) {
   type VarId = Int
 
   def readVar(v : VarId) : Set[Variable] = {
