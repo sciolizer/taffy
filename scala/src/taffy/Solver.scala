@@ -9,6 +9,7 @@ package taffy
 
 import scala.collection.mutable
 import scala.util.control.Breaks._
+import scala.None
 
 class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variables, Variable],
                                                problem: Problem[Constraint, Variables, Variable],
@@ -23,7 +24,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
   private val unrevised: mutable.Set[Constraint] = mutable.Set()
 
   private val unassigned: mutable.Set[VarId] = mutable.Set()
-  private val trail: mutable.Stack[(VarId, Variables /* untried */, Boolean /* decision variable */)] = mutable.Stack()
+  private val trail: mutable.Stack[(VarId, Variables /* original */, Option[Set[Variable]] /* attempts */)] = mutable.Stack()
 
   def solve() : Option[Read[Variables, Variable]] = {
     for (vid <- 0 to problem.numVariables) {
@@ -64,7 +65,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
             val values: Variables = variables(vid)
             if (ranger.isSingleton(values)) {
               unassigned -= vid
-              trail.push((vid, ranger.subtraction(original, values), false))
+              trail.push((vid, /* ranger.subtraction( */ original /* , values) */, None))
               unrevised ++= watchers(vid) - constraint
             }
           }
@@ -78,15 +79,38 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
         val values: Variables = variables(vid)
         val value = ranger.pick(values) // todo: better value picking
         unassigned -= vid
-        trail.push((vid, ranger.subtraction(values, ranger.toSingleton(value)), true))
+        trail.push((vid, /*ranger.subtraction(*/values/*, ranger.toSingleton(value))*/, Some(Set(value))))
         unrevised ++= watchers(vid)
       }
     }
     Some(new Read(variables, ranger))
   }
 
-  private def backjump() {
-
+  private def backjump() { // todo: currently this is only backtracking, not backjumping
+    breakable {
+      while (!trail.isEmpty) {
+        val (vid, original, decision) = trail.pop()
+        decision match {
+          case None =>
+            variables(vid) = original
+            unassigned += vid
+          case Some(attempted) =>
+            var untried = original
+            for (value <- attempted) {
+              untried = ranger.subtraction(untried, ranger.toSingleton(value))
+            }
+            if (ranger.isEmpty(untried)) {
+              variables(vid) = original
+              unassigned += vid
+            } else {
+              val value: Variable = ranger.pick(untried)
+              variables(vid) = ranger.toSingleton(value)
+              trail.push((vid, original, Some(attempted + value)))
+              break()
+            }
+        }
+      }
+    }
   }
   /*
 {-# LANGUAGE FlexibleInstances #-}

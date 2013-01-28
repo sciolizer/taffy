@@ -1,7 +1,11 @@
 package taffy.examples
 
-import taffy.{Problem, Solver, ReadWrite, Domain}
+import taffy._
+import examples.Literal
 import taffy.ReadWrite.{Rejects, Is, Accepts}
+import taffy.ReadWrite.Accepts
+import taffy.ReadWrite.Is
+import taffy.ReadWrite.Rejects
 
 /**
  * Created with IntelliJ IDEA.
@@ -11,10 +15,10 @@ import taffy.ReadWrite.{Rejects, Is, Accepts}
  */
 case class Literal(expected: Boolean, vid: Int)
 
-class Sat extends Domain[List[Literal],Boolean] {
+class Sat extends Domain[List[Literal], Set[Boolean], Boolean] {
   def learn(constraints: List[List[Literal]]): List[(List[Literal], List[List[Literal]])] = List.empty // todo
 
-  def revise(rw: ReadWrite[List[Literal], Boolean], c: List[Literal]) : Boolean = {
+  def revise(rw: ReadWrite[List[Literal], Set[Boolean], Boolean], c: List[Literal]) : Boolean = {
     var satisfiable = false
     for (Literal(expected, varId) <- c) {
       rw.contains(varId, expected) match {
@@ -42,8 +46,15 @@ object Sat {
     val clause0 = List(Literal(false, a), Literal(true, b), Literal(true, c))
     val clause1 = List(Literal(true, a), Literal(false, b))
     val clause2 = List(Literal(true, a), Literal(true, c))
-    val problem = new Problem[List[Literal], Boolean](3, Set(clause0, clause1, clause2), List())
-    val s = new Solver(new Sat(), problem)
-    println(s)
+    val problem = new Problem[List[Literal], Set[Boolean], Boolean](3, Set(clause0, clause1, clause2), Set(true, false))
+    val s = new Solver(new Sat(), problem, new SetRanger[Boolean]())
+    val answer = s.solve()
+    answer match {
+      case None => println("No solution found")
+      case Some(reader) =>
+        println("a: " + reader.read(a))
+        println("b: " + reader.read(b))
+        println("c: " + reader.read(c))
+    }
   }
 }
