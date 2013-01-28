@@ -12,6 +12,7 @@ module NewSolver where
 import Control.Applicative
 import Control.Exception
 import Control.Lens
+import Control.Monad.Error
 import Control.Monad.IO.Class
 import Control.Monad.RWS
 import Control.Monad.Writer
@@ -44,7 +45,14 @@ data SolveState c v = SolveState {
 
 type Substitution = M.Map VarId VarId
 
-newtype ReadWrite c v a = ReadWrite (RWST c [(VarId, Maybe v)] () (Solve c v) a)
+type Undo c v = Solve c v ()
+instance Monoid (Undo c v)
+
+instance Error () where
+  noMsg = ()
+  strMsg _ = ()
+
+newtype ReadWrite c v a = ReadWrite (ErrorT () (RWST c ([(VarId, Maybe v)], Undo c v) () (Solve c v)) a)
   deriving (Applicative, Functor, Monad, MonadIO)
 
 newtype Solve c v a = Solve (RWST (SolveContext c v) () (SolveState c v) IO a)
@@ -64,10 +72,10 @@ makeLenses ''SolveState
 -- (well, except for learnt constraints, which
 -- can be garbage collected)
 -- the given c will be injected into every variable that is examined
-runReadWrite :: ReadWrite c v a -> c -> Solve c v (Maybe (a, [(VarId, Maybe v)], Solve c v () {- undo -}))
-runReadWrite = undefined
--- runRWST (runErrorT undefined) undefined undefined
---   :: m (Either e a, s, w)
+runReadWrite :: ReadWrite c v a -> c -> Solve c v (Maybe a, [(VarId, Maybe v)], Solve c v () {- undo -})
+runReadWrite (ReadWrite m) c = do
+  (ret, (), (watched, undo)) <- runRWST (runErrorT m) c ()
+  return (ret, watched, undo)
 
 runSolve :: Solve c v a -> SolveContext c v -> SolveState c v -> IO (a, SolveState c v)
 runSolve = undefined
@@ -161,12 +169,14 @@ loop = do
         Just c -> do
           uninject c
           reviser <- view revise
-          e <- runReadWrite (reviser c) c
+          (e, vids, undo) <- runReadWrite (reviser c) c
           case e of
             -- todo: jumpback probably needs to wipe clean the collection of
             -- constraints
-            Nothing -> jumpback
-            Just ((), vids, undo) -> do
+            Nothing -> do
+              undo
+              jumpback
+            Just () -> do
               -- find out if any of the vids are now singletons
               -- if so, then record the current constraint as being
               -- their "reason"
