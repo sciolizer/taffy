@@ -1,6 +1,6 @@
 package taffy
 
-import taffy.ReadWrite.Contains
+import taffy.ReadWrite.{Accepts, Is, Rejects, Contains}
 import collection.mutable
 
 /**
@@ -12,12 +12,15 @@ import collection.mutable
 
 class ReadWrite[Constraint, Variables, Variable](constraint: Constraint,
                                                  variables: mutable.ArrayBuffer[Variables],
-                                                 varsRead: mutable.Queue[Int],
-                                                 undo: mutable.Queue[(Int, Variables)]) {
+                                                 varsRead: mutable.Map[Int, Option[Set[Variable]]],
+                                                 undo: mutable.Map[Int, Variables],
+                                                 ranger: Ranger[Variables, Variable]) {
   type VarId = Int
 
-  def readVar(v : VarId) : Set[Variable] = {
-    throw new RuntimeException("not implemented")
+  // todo: do safety check with the coverage function
+  def readVar(v : VarId) : Variables = {
+    varsRead(v) = None
+    variables(v)
   }
 
   /**
@@ -27,6 +30,8 @@ class ReadWrite[Constraint, Variables, Variable](constraint: Constraint,
    * "I am interested in this particular value", which means the solver can
    * execute a more efficient watched literal strategy.
    *
+   * todo: a safety check with the coverage function
+   *
    * @param v The variable you want to read
    * @param value The value you hope the variable contains.
    * @return true iff the variable is currently a singleton with the given value. Returns false
@@ -35,19 +40,41 @@ class ReadWrite[Constraint, Variables, Variable](constraint: Constraint,
    *         constraints.
    */
   def contains(v : VarId, value : Variable) : Contains = {
-    throw new RuntimeException("not implemented")
+    varsRead.get(v) match {
+      case None => varsRead(v) = Some(Set(value))
+      case Some(None) => // do nothing
+      case Some(Some(s)) => varsRead(v) = Some(s + value)
+    }
+    val intersection: Variables = ranger.intersection(variables(v), ranger.toSingleton(value))
+    if (ranger.isEmpty(intersection)) {
+      Rejects()
+    } else if (ranger.isSingleton(intersection)) {
+      Is()
+    } else {
+      Accepts()
+    }
   }
 
   def setVar(v : VarId, value : Variable) {
-    throw new RuntimeException("not implemented")
+    intersectVar(v, ranger.toSingleton(value))
   }
 
-  def intersectVar(v : VarId, values : Set[Variable]) {
-    throw new RuntimeException("not implemented")
+  def intersectVar(v : VarId, values : Variables) {
+    replace(v, ranger.intersection(_, values))
   }
 
   def shrinkVar(v : VarId, value : Variable) {
-    throw new RuntimeException("not implemented")
+    replace(v, ranger.subtraction(_, ranger.toSingleton(value)))
+  }
+
+  private def replace(v: VarId, replacer: Variables => Variables) {
+    val original = variables(v)
+    val replacement = replacer(original)
+    variables(v) = replacement
+    undo.get(v) match {
+      case None => undo(v) = original
+      case Some(_) => // do nothing; can't get more original than the original
+    }
   }
 }
 

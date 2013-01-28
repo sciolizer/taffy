@@ -36,14 +36,14 @@ class Sat extends Domain[List[Literal], Set[Boolean], Boolean] {
 object Sat {
   def main(args: Array[String]) {
     /*
-    not a \/ b \/ c
+    not a \/ not b \/ not c
     a \/ not b
     a \/ c
      */
     val a = 0
     val b = 1
     val c = 2
-    val clause0 = List(Literal(false, a), Literal(true, b), Literal(true, c))
+    val clause0 = List(Literal(false, a), Literal(false, b), Literal(false, c))
     val clause1 = List(Literal(true, a), Literal(false, b))
     val clause2 = List(Literal(true, a), Literal(true, c))
     val problem = new Problem[List[Literal], Set[Boolean], Boolean](3, Set(clause0, clause1, clause2), Set(true, false))

@@ -27,20 +27,21 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
   private val trail: mutable.Stack[(VarId, Variables /* original */, Option[Set[Variable]] /* attempts */)] = mutable.Stack()
 
   def solve() : Option[Read[Variables, Variable]] = {
-    for (vid <- 0 to problem.numVariables) {
+    for (vid <- 0 until problem.numVariables) {
       variables += problem.candidateValues
       watchers += Set.empty
+      unassigned += vid
     }
     unrevised ++= problem.constraints
 
-    while (!unrevised.isEmpty && !unassigned.isEmpty) {
+    while (!unrevised.isEmpty || !unassigned.isEmpty) {
       var bj = false
       if (!unrevised.isEmpty) {
         val constraint = unrevised.head
         unrevised -= constraint
-        val varsRead = mutable.Queue[VarId]()
-        val undo = mutable.Queue[(VarId, Variables)]()
-        val rw = new ReadWrite[Constraint, Variables, Variable](constraint, variables, varsRead, undo)
+        val varsRead = mutable.Map[VarId, Option[Set[Variable]]]()
+        val undo = mutable.Map[VarId, Variables]()
+        val rw = new ReadWrite[Constraint, Variables, Variable](constraint, variables, varsRead, undo, ranger)
         if (domain.revise(rw, constraint)) {
           bj = false
           breakable {
@@ -69,8 +70,8 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
               unrevised ++= watchers(vid) - constraint
             }
           }
-          for (varId <- varsRead) {
-            watchers(varId) += constraint
+          for ((varId, _) <- varsRead) {
+            watchers(varId) += constraint // todo: only watch on particular values
           }
         }
       } else if (!unassigned.isEmpty) {
@@ -79,6 +80,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
         val values: Variables = variables(vid)
         val value = ranger.pick(values) // todo: better value picking
         unassigned -= vid
+        variables(vid) = ranger.toSingleton(value)
         trail.push((vid, /*ranger.subtraction(*/values/*, ranger.toSingleton(value))*/, Some(Set(value))))
         unrevised ++= watchers(vid)
       }
