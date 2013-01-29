@@ -85,14 +85,8 @@ class ImplicationGraph[Variables, Variable](numVariables: Int, allValues: Variab
    * @param confl
    */
   def fuip(reads: collection.Set[VarId]): (NoGood[Variables], Set[VarId] /* rewound variables */) = {
-    println("Before: " + toString())
-    println("Reads: " + reads)
-    /*
-    Ok, here's my current thoughts:
-    because we have a setVar function, we can track the reasons ourselves.
-    If a variable becomes unit because of shrink or intersection, and NOT because
-    of setVar, then we treat the variable as a decision variable.
-     */
+//    println("Before: " + toString())
+//    println("Reads: " + reads)
 
     // var confl = conflicting
     val seen: mutable.Set[AssignmentId] = mutable.Set.empty
@@ -105,10 +99,6 @@ class ImplicationGraph[Variables, Variable](numVariables: Int, allValues: Variab
     var rewound: Set[VarId] = Set.empty
     val startingDecisionLevel = decisionLevel
     var firstTime = true
-//    println("starting fuip. first reason: " + firstReason)
-//    println("variables: " + variables)
-//    println("reasons: " + reasons)
-//    printTrail()
 
     do {
       val aids: collection.Set[AssignmentId] = if (firstTime) {
@@ -143,11 +133,11 @@ class ImplicationGraph[Variables, Variable](numVariables: Int, allValues: Variab
       firstTime = false
     } while (counter > 0)
     nogoods(lastVar) = lastReason
-    // this new constraint should be unit in the variable that is about to be tried next
+    // this new constraint will be unit in the variable that is about to be tried next. I think.
     val nogood: NoGood[Variables] = new NoGood[Variables](nogoods)
-    println("nogood: " + nogood)
-    println("rewound: " + rewound)
-    println(toString())
+//    println("nogood: " + nogood)
+//    println("rewound: " + rewound)
+//    println(toString())
     if (!nogood.isUnit[Variable](new ReadWrite(this, mutable.Set(), mutable.Set(), ranger), ranger)) {
       throw new RuntimeException("generated nogood is not unit: " + nogood)
     }
@@ -155,16 +145,8 @@ class ImplicationGraph[Variables, Variable](numVariables: Int, allValues: Variab
       rewound = rewound + assignments.last._1
       undoOne()
     }
-    println("btlevel_out: " + out_btlevel)
-    // todo: do something with btlevel_out... I think there might be the possibility of an infinite loop if we don't
-    // because if a constraint makes TWO assignments, but only one of them gets reverted, the constraint will
-    // just make the same assignment again
+//    println("btlevel_out: " + out_btlevel)
     Tuple2(nogood, rewound)
-//    println("ending fuip. nogood: " + nogood)
-//    println("variables: " + variables)
-//    println("reasons: " + reasons)
-//    printTrail()
-//    println("btlevel: " + out_btlevel) // todo: do something with this value
 
     /*
     First unique implication point:
