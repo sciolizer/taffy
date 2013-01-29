@@ -13,7 +13,6 @@ import collection.mutable
 class ReadWrite[Variables, Variable](graph: ImplicationGraph[Variables, Variable],
                                      reads: mutable.Set[Int], // var ids, for installing watchers
                                      writes: mutable.Set[Int], // var ids, for potentially removing vars from unassigned
-                                     allValues: Variables,
                                      ranger: Ranger[Variables, Variable]) {
   type VarId = Int
   type AssignmentId = Int
@@ -22,12 +21,9 @@ class ReadWrite[Variables, Variable](graph: ImplicationGraph[Variables, Variable
   // todo: do safety check with the coverage function
   def readVar(v : VarId) : Variables = {
     reads += v
-    graph.mostRecentAssignment(v) match {
-      case None => allValues
-      case Some(aid) =>
-        assignmentReads += aid
-        graph.values(aid)
-    }
+    val aid = graph.mostRecentAssignment(v)
+    assignmentReads += aid
+    graph.values(aid)
   }
 
   /**
@@ -73,7 +69,8 @@ class ReadWrite[Variables, Variable](graph: ImplicationGraph[Variables, Variable
     writes += v
     val original = graph.readVar(v)
     val replacement = replacer(original)
-    graph.implies(v, replacement, assignmentReads.asInstanceOf[Set[Int]])
+    val reads = Set.empty ++ assignmentReads // is there a better way? Scala collections confuse me.
+    graph.implies(v, replacement, reads)
   }
 }
 

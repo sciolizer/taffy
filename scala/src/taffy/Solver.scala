@@ -34,7 +34,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
 
   // private val reasons: mutable.Map[(VarId, Variables), (DecisionLevel, Option[(Constraint, Map[VarId, Variables])])] = mutable.Map()
 
-  private val graph: ImplicationGraph[Variables, Variable] = new ImplicationGraph(problem.candidateValues, ranger)
+  private val graph: ImplicationGraph[Variables, Variable] = new ImplicationGraph(problem.numVariables, problem.candidateValues, ranger)
 
   // private var decisionLevel: DecisionLevel = 0
 
@@ -53,7 +53,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
         unrevised -= constraint
         val reads = mutable.Set[VarId]()
         val writes = mutable.Set[VarId]()
-        val rw = new ReadWrite[Variables, Variable](graph, reads.asInstanceOf[mutable.Set[Int]], writes.asInstanceOf[mutable.Set[Int]], problem.candidateValues, ranger)
+        val rw = new ReadWrite[Variables, Variable](graph, reads.asInstanceOf[mutable.Set[Int]], writes.asInstanceOf[mutable.Set[Int]], ranger)
         var bj = !revise(rw, constraint)
         for (vid <- writes) {
           unrevised ++= watchers(vid) - constraint // todo: don't update unrevised when bj is going to become true
@@ -66,7 +66,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
         }
         if (bj) {
           if (graph.decisionLevel == 0) return None
-          val (nogood, rewound) = graph.fuip()
+          val (nogood, rewound) = graph.fuip(reads)
           if (graph.isEmpty) return None
           unassigned ++= rewound
           unrevised += Left(nogood)

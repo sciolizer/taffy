@@ -10,7 +10,7 @@ import collection.immutable.Stack
  * Date: 1/29/13
  * Time: 11:23 AM
  */
-class ImplicationGraph[Variables, Variable](allValues: Variables, ranger: Ranger[Variables, Variable]) {
+class ImplicationGraph[Variables, Variable](numVariables: Int, allValues: Variables, ranger: Ranger[Variables, Variable]) {
   type VarId = Int
   type AssignmentId = Int
   type DecisionLevel = Int
@@ -18,6 +18,10 @@ class ImplicationGraph[Variables, Variable](allValues: Variables, ranger: Ranger
   private val assignments: ArrayBuffer[(VarId, Variables, DecisionLevel)] = ArrayBuffer()
   private val implications: mutable.Map[AssignmentId, Set[AssignmentId]] = mutable.Map() // entry does not exist for decision variables
   private val varIndex: mutable.Map[VarId, Stack[AssignmentId]] = mutable.Map().withDefaultValue(Stack.empty)
+
+  for (i <- 0 until numVariables) {
+    record(i, allValues)
+  }
 
   def implies(vid: VarId, values: Variables, because: Set[AssignmentId]): AssignmentId = {
     val ret: AssignmentId = record(vid, values)
@@ -39,15 +43,10 @@ class ImplicationGraph[Variables, Variable](allValues: Variables, ranger: Ranger
 
   def decisionLevel = dl
 
-  def isEmpty = assignments.isEmpty
+  def isEmpty = assignments.size <= numVariables
 
-  def mostRecentAssignment(vid: VarId): Option[AssignmentId] = {
-    val stack: Stack[ImplicationGraph.this.type#AssignmentId] = varIndex(vid)
-    if (stack.isEmpty) {
-      None
-    } else {
-      Some(stack.top)
-    }
+  def mostRecentAssignment(vid: VarId): AssignmentId = {
+    varIndex(vid).top
   }
 
   def values(aid: AssignmentId): Variables = {
@@ -55,13 +54,11 @@ class ImplicationGraph[Variables, Variable](allValues: Variables, ranger: Ranger
   }
 
   def readVar(vid: VarId): Variables = {
-    mostRecentAssignment(vid) match {
-      case None => allValues
-      case Some(aid) => values(aid)
-    }
+    values(mostRecentAssignment(vid))
   }
 
   private def undoOne() {
+    if (assignments.size <= numVariables) throw new RuntimeException("tried to undo past beginning")
     val i: Int = assignments.size - 1
     val vid = assignments.remove(i)._1
     implications.remove(i)
@@ -87,8 +84,9 @@ class ImplicationGraph[Variables, Variable](allValues: Variables, ranger: Ranger
    * Adapted from the minisat paper.
    * @param confl
    */
-  def fuip(): (NoGood[Variables], Set[VarId] /* rewound variables */) = {
+  def fuip(reads: collection.Set[VarId]): (NoGood[Variables], Set[VarId] /* rewound variables */) = {
     println("Before: " + toString())
+    println("Reads: " + reads)
     /*
     Ok, here's my current thoughts:
     because we have a setVar function, we can track the reasons ourselves.
@@ -99,27 +97,31 @@ class ImplicationGraph[Variables, Variable](allValues: Variables, ranger: Ranger
     // var confl = conflicting
     val seen: mutable.Set[AssignmentId] = mutable.Set.empty
     var counter = 0
-    var p: VarId = assignments.last._1
+    var p: AssignmentId = null.asInstanceOf[AssignmentId]
     val nogoods: mutable.Map[VarId, Variables] = mutable.Map()
     var out_btlevel = 0
+    var lastVar: VarId = null.asInstanceOf[VarId]
     var lastReason: Variables = null.asInstanceOf[Variables]
     var rewound: Set[VarId] = Set.empty
+    val startingDecisionLevel = decisionLevel
+    var firstTime = true
 //    println("starting fuip. first reason: " + firstReason)
 //    println("variables: " + variables)
 //    println("reasons: " + reasons)
 //    printTrail()
 
     do {
-      val p_reason: AssignmentId = mostRecentAssignment(p) match {
-        case None => throw new RuntimeException("internal bug: can't find assignment for " + p)
-        case Some(aid) => aid
+      val aids: collection.Set[AssignmentId] = if (firstTime) {
+        reads.map(mostRecentAssignment(_))
+      } else {
+        implications(p)
       }
-      for (aid <- implications(p_reason)) {
+      for (aid <- aids) {
         if (!seen.contains(aid)) {
           seen += aid
           val assignment: (VarId, Variables, DecisionLevel) = assignments(aid)
           val vidLevel: DecisionLevel = assignment._3
-          if (vidLevel == decisionLevel) { // todo: is this allowed to decrease over time?
+          if (vidLevel == startingDecisionLevel) { // todo: is this allowed to decrease over time?
             counter += 1
           } else if (vidLevel > 0) {
             nogoods(assignment._1) = assignment._2
@@ -129,23 +131,31 @@ class ImplicationGraph[Variables, Variable](allValues: Variables, ranger: Ranger
       }
 
       do {
+        // todo: this loop can be made faster. See minisat C++ code. Only tricky part is probably rewound
         val lastAssignment: (VarId, Variables, DecisionLevel) = assignments.last
-        p = lastAssignment._1
-        rewound = rewound + p
+        p = assignments.size - 1
+        lastVar = lastAssignment._1
+        rewound = rewound + lastVar
         lastReason = lastAssignment._2
         undoOne()
       } while (!seen.contains(p))
       counter -= 1
+      firstTime = false
     } while (counter > 0)
-    nogoods(p) = lastReason
+    nogoods(lastVar) = lastReason
     // this new constraint should be unit in the variable that is about to be tried next
     val nogood: NoGood[Variables] = new NoGood[Variables](nogoods)
-    if (!nogood.isUnit[Variable](new ReadWrite(this, mutable.Set(), mutable.Set(), allValues, ranger), ranger)) {
-      throw new RuntimeException("generated nogood is not unit: " + nogood)
-    }
     println("nogood: " + nogood)
     println("rewound: " + rewound)
     println(toString())
+    if (!nogood.isUnit[Variable](new ReadWrite(this, mutable.Set(), mutable.Set(), ranger), ranger)) {
+      throw new RuntimeException("generated nogood is not unit: " + nogood)
+    }
+    while (out_btlevel < decisionLevel) {
+      rewound = rewound + assignments.last._1
+      undoOne()
+    }
+    println("btlevel_out: " + out_btlevel)
     // todo: do something with btlevel_out... I think there might be the possibility of an infinite loop if we don't
     // because if a constraint makes TWO assignments, but only one of them gets reverted, the constraint will
     // just make the same assignment again
