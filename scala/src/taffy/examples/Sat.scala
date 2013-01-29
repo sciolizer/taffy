@@ -22,19 +22,19 @@ class Sat extends Domain[List[Literal], Set[Boolean], Boolean] {
     var accepts: Option[(Int, Boolean)] = None
     for (Literal(expected, varId) <- c) {
       rw.contains(varId, expected) match {
-        case Is() => println("is: " + varId); return true
+        case Is() => /* println("is: " + varId); */ return true
         case Accepts() =>
           accepts match {
-            case None => println("acceptable: " + varId); accepts = Some(varId, expected)
-            case Some(_) => println("double accept: " + varId); return true // at least two variables are undetermined, so no deduction can yet be made
+            case None => /* println("acceptable: " + varId); */ accepts = Some(varId, expected)
+            case Some(_) => /* println("double accept: " + varId); */ return true // at least two variables are undetermined, so no deduction can yet be made
           }
         case Rejects() =>
       }
     }
     accepts match {
-      case None => println("constraint unsatisfiable"); false
+      case None => /* println("constraint unsatisfiable"); */ false
       case Some((vid, expected)) =>
-        println("deduced " + vid + " is " + expected)
+        // println("deduced " + vid + " is " + expected)
         rw.setVar(vid, expected) // unit clause optimization
         true
     }

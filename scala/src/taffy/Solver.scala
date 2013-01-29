@@ -38,7 +38,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
       var bj = false
       if (!unrevised.isEmpty) {
         val constraint = unrevised.head
-        println("Revising constraint: " + constraint)
+        // println("Revising constraint: " + constraint)
         unrevised -= constraint
         val varsRead = mutable.Map[VarId, Option[Set[Variable]]]()
         val undo = mutable.Map[VarId, Variables]()
@@ -80,7 +80,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
         unassigned -= vid
         val values: Variables = variables(vid)
         val value = ranger.pick(values) // todo: better value picking
-        println("Assigning " + value + " to " + vid)
+        // println("Assigning " + value + " to " + vid)
         unassigned -= vid
         variables(vid) = ranger.toSingleton(value)
         trail.push((vid, /*ranger.subtraction(*/values/*, ranger.toSingleton(value))*/, Some(Set(value))))
