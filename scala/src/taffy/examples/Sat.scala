@@ -59,14 +59,25 @@ class Sat extends Domain[List[Literal], BVars, Boolean] {
   def learn(constraints: List[List[Literal]]): List[(List[Literal], List[List[Literal]])] = List.empty // todo
 
   def revise(rw: ReadWrite[BVars, Boolean], c: List[Literal]) : Boolean = {
+    var accepts: Option[(Int, Boolean)] = None
     for (Literal(expected, varId) <- c) {
       rw.contains(varId, expected) match {
-        case Is() => return true
-        case Accepts() => return true
+        case Is() => /* println("is: " + varId); */ return true
+        case Accepts() =>
+          accepts match {
+            case None => /* println("acceptable: " + varId); */ accepts = Some(varId, expected)
+            case Some(_) => /* println("double accept: " + varId); */ return true // at least two variables are undetermined, so no deduction can yet be made
+          }
         case Rejects() =>
       }
     }
-    false
+    accepts match {
+      case None => /* println("constraint unsatisfiable"); */ false
+      case Some((vid, expected)) =>
+        // println("deduced " + vid + " is " + expected)
+        rw.setVar(vid, expected) // unit clause optimization
+        true
+    }
   }
 
   def coverage(c: List[Literal]): List[Int] = c.map(_.vid)
