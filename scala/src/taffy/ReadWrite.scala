@@ -45,10 +45,10 @@ class ReadWrite[Constraint, Variables, Variable](constraint: Constraint,
       case Some(None) => // do nothing
       case Some(Some(s)) => varsRead(v) = Some(s + value)
     }
-    val intersection: Variables = ranger.intersection(variables(v), ranger.toSingleton(value))
-    if (ranger.isEmpty(intersection)) {
+    val candidates: Variables = variables(v)
+    if (ranger.isEmpty(ranger.intersection(candidates, ranger.toSingleton(value)))) {
       Rejects()
-    } else if (ranger.isSingleton(intersection)) {
+    } else if (ranger.isSingleton(candidates)) {
       Is()
     } else {
       Accepts()
