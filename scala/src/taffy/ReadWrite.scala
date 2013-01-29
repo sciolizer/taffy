@@ -10,17 +10,22 @@ import collection.mutable
  * Time: 9:32 AM
  */
 
-class ReadWrite[Constraint, Variables, Variable](constraint: Constraint,
-                                                 variables: mutable.ArrayBuffer[Variables],
-                                                 varsRead: mutable.Map[Int, Option[Set[Variable]]],
+class ReadWrite[Constraint, Variables, Variable](variables: mutable.ArrayBuffer[Variables],
+                                                 varsRead: mutable.Map[Int, (Variables /* original */, Option[Set[Variable]] /* passed to contains */)],
                                                  undo: mutable.Map[Int, Variables],
+                                                 setVars: mutable.Set[Int],
                                                  ranger: Ranger[Variables, Variable]) {
   type VarId = Int
 
   // todo: do safety check with the coverage function
   def readVar(v : VarId) : Variables = {
-    varsRead(v) = None
-    variables(v)
+    val ret: Variables = variables(v)
+    varsRead.get(v) match {
+      case None => varsRead(v) = (ret, None) // first read, so record snapshot
+      case Some((_, None)) => // do nothing
+      case Some((orig, Some(_))) => varsRead(v) = (orig, None) // subsequent read, so leave snapshot as is
+    }
+    ret
   }
 
   /**
@@ -40,12 +45,12 @@ class ReadWrite[Constraint, Variables, Variable](constraint: Constraint,
    *         constraints.
    */
   def contains(v : VarId, value : Variable) : Contains = {
-    varsRead.get(v) match {
-      case None => varsRead(v) = Some(Set(value))
-      case Some(None) => // do nothing
-      case Some(Some(s)) => varsRead(v) = Some(s + value)
-    }
     val candidates: Variables = variables(v)
+    varsRead.get(v) match {
+      case None => varsRead(v) = (candidates, Some(Set(value)))
+      case Some((_,None)) => // do nothing
+      case Some((orig, Some(s))) => varsRead(v) = (orig, Some(s + value))
+    }
     if (ranger.isEmpty(ranger.intersection(candidates, ranger.toSingleton(value)))) {
       Rejects()
     } else if (ranger.isSingleton(candidates)) {
@@ -56,6 +61,7 @@ class ReadWrite[Constraint, Variables, Variable](constraint: Constraint,
   }
 
   def setVar(v : VarId, value : Variable) {
+    setVars += v
     intersectVar(v, ranger.toSingleton(value))
   }
 
