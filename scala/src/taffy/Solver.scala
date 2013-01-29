@@ -36,6 +36,13 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
 
   private var decisionLevel: DecisionLevel = 0
 
+  private def printTrail() {
+    for (item <- trail) {
+      print(item + ";")
+    }
+    println()
+  }
+
   def solve() : Option[Read[Variables, Variable]] = {
     val initialDecisionLevel: DecisionLevel = -1
     val initialCause: Option[(Constraint, Map[VarId, Variables])] = None
@@ -176,6 +183,10 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
     val nogoods: mutable.Map[Int, Variables] = mutable.Map()
     var out_btlevel = 0
     var lastReason: Any = null // but really : Variables
+    println("starting fuip. first reason: " + firstReason)
+    println("variables: " + variables)
+    println("reasons: " + reasons)
+    printTrail()
 
     do {
       val p_reason: collection.Map[VarId, Variables] = if (p == null) firstReason else {
@@ -203,7 +214,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
 
       do {
         p = trail.top match {
-          case (vid, values, _) => (vid, values)
+          case (vid, _, _) => (vid, variables(vid))
         }
         lastReason = variables(p.asInstanceOf[(VarId, Variables)]._1)
         undoOne()
@@ -217,6 +228,11 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
       throw new RuntimeException("generated nogood is not unit: " + nogood)
     }
     unrevised += Left(nogood)
+    println("ending fuip. nogood: " + nogood)
+    println("variables: " + variables)
+    println("reasons: " + reasons)
+    printTrail()
+    println("btlevel: " + out_btlevel) // todo: do something with this value
 
       /*
       First unique implication point:

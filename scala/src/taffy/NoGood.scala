@@ -7,7 +7,6 @@ package taffy
  * Time: 4:27 PM
  */
 class NoGood[Constraint, Variables, Variable](forbidden: collection.Map[Int, Variables]) {
-
   def revise(rw: ReadWrite[Constraint, Variables, Variable], ranger: Ranger[Variables, Variable]): Boolean = {
     getUnit(rw, ranger) match {
       case Left(b) => b
@@ -45,5 +44,9 @@ class NoGood[Constraint, Variables, Variable](forbidden: collection.Map[Int, Var
       case None => Left(false) // each portion of the clause was false
       case Some((vid, diff)) => Right((vid, diff)) // Only one portion of the clause is true, and we can make a deduction!
     }
+  }
+
+  override def toString: String = {
+    forbidden.toString()
   }
 }
