@@ -6,22 +6,22 @@ package taffy
  * Date: 1/28/13
  * Time: 4:27 PM
  */
-class NoGood[Constraint, Variables, Variable](forbidden: collection.Map[Int, Variables]) {
-  def revise(rw: ReadWrite[Constraint, Variables, Variable], ranger: Ranger[Variables, Variable]): Boolean = {
+class NoGood[Variables](forbidden: collection.Map[Int, Variables]) {
+  def revise[Variable](rw: ReadWrite[Variables, Variable], ranger: Ranger[Variables, Variable]): Boolean = {
     getUnit(rw, ranger) match {
       case Left(b) => b
       case Right((vid, diff)) => rw.intersectVar(vid, diff); true
     }
   }
 
-  def isUnit(rw: ReadWrite[Constraint, Variables, Variable], ranger: Ranger[Variables, Variable]): Boolean = {
+  def isUnit[Variable](rw: ReadWrite[Variables, Variable], ranger: Ranger[Variables, Variable]): Boolean = {
     getUnit(rw, ranger) match {
       case Left(_) => false
       case Right(_) => true
     }
   }
 
-  private def getUnit(rw: ReadWrite[Constraint, Variables, Variable], ranger: Ranger[Variables, Variable]): Either[Boolean, (Int, Variables)] = {
+  private def getUnit[Variable](rw: ReadWrite[Variables, Variable], ranger: Ranger[Variables, Variable]): Either[Boolean, (Int, Variables)] = {
     var accepts: Option[(Int, Variables)] = None
     for ((vid, values1) <- forbidden) {
       val values2: Variables = rw.readVar(vid)

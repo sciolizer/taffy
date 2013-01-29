@@ -10,21 +10,24 @@ import collection.mutable
  * Time: 9:32 AM
  */
 
-class ReadWrite[Constraint, Variables, Variable](variables: mutable.ArrayBuffer[Variables],
-                                                 varsRead: mutable.Map[Int, (Variables /* original */, Option[Set[Variable]] /* passed to contains */)],
-                                                 undo: mutable.Map[Int, Variables],
-                                                 ranger: Ranger[Variables, Variable]) {
+class ReadWrite[Variables, Variable](graph: ImplicationGraph[Variables, Variable],
+                                     reads: mutable.Set[Int], // var ids, for installing watchers
+                                     writes: mutable.Set[Int], // var ids, for potentially removing vars from unassigned
+                                     allValues: Variables,
+                                     ranger: Ranger[Variables, Variable]) {
   type VarId = Int
+  type AssignmentId = Int
+  private val assignmentReads: mutable.Set[AssignmentId] = mutable.Set()
 
   // todo: do safety check with the coverage function
   def readVar(v : VarId) : Variables = {
-    val ret: Variables = variables(v)
-    varsRead.get(v) match {
-      case None => varsRead(v) = (ret, None) // first read, so record snapshot
-      case Some((_, None)) => // do nothing
-      case Some((orig, Some(_))) => varsRead(v) = (orig, None) // subsequent read, so leave snapshot as is
+    reads += v
+    graph.mostRecentAssignment(v) match {
+      case None => allValues
+      case Some(aid) =>
+        assignmentReads += aid
+        graph.values(aid)
     }
-    ret
   }
 
   /**
@@ -44,12 +47,7 @@ class ReadWrite[Constraint, Variables, Variable](variables: mutable.ArrayBuffer[
    *         constraints.
    */
   def contains(v : VarId, value : Variable) : Contains = {
-    val candidates: Variables = variables(v)
-    varsRead.get(v) match {
-      case None => varsRead(v) = (candidates, Some(Set(value))) // todo: this is good for determining watched literals but bad for nogood generation... make sure that the code in solver completely ignores this value (at least until I improve the watchers logic; even then, for populating the reasons array buffer, Solver should use the previous variable assignment, NOT the value returned in this Option of varsRead
-      case Some((_,None)) => // do nothing
-      case Some((orig, Some(s))) => varsRead(v) = (orig, Some(s + value)) // todo: same problem as None case two lines up
-    }
+    val candidates: Variables = readVar(v)
     if (ranger.isEmpty(ranger.intersection(candidates, ranger.toSingleton(value)))) {
       Rejects()
     } else if (ranger.isSingleton(candidates)) {
@@ -72,13 +70,10 @@ class ReadWrite[Constraint, Variables, Variable](variables: mutable.ArrayBuffer[
   }
 
   private def replace(v: VarId, replacer: Variables => Variables) {
-    val original = variables(v)
+    writes += v
+    val original = graph.readVar(v)
     val replacement = replacer(original)
-    variables(v) = replacement
-    undo.get(v) match {
-      case None => undo(v) = original
-      case Some(_) => // do nothing; can't get more original than the original
-    }
+    graph.implies(v, replacement, assignmentReads.asInstanceOf[Set[Int]])
   }
 }
 

@@ -8,6 +8,6 @@ import collection.mutable
  * Date: 1/28/13
  * Time: 10:58 AM
  */
-class Read[Variables, Variable](variables: mutable.ArrayBuffer[Variables], ranger: Ranger[Variables, Variable]) {
-  def read(vid: Int) : Variable = ranger.fromSingleton(variables(vid))
+class Read[Variables, Variable](graph: ImplicationGraph[Variables, Variable], ranger: Ranger[Variables, Variable]) {
+  def read(vid: Int) : Variable = ranger.fromSingleton(graph.readVar(vid))
 }

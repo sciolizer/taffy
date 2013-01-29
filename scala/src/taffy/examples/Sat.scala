@@ -18,7 +18,7 @@ case class Literal(expected: Boolean, vid: Int)
 class Sat extends Domain[List[Literal], Set[Boolean], Boolean] {
   def learn(constraints: List[List[Literal]]): List[(List[Literal], List[List[Literal]])] = List.empty // todo
 
-  def revise(rw: ReadWrite[List[Literal], Set[Boolean], Boolean], c: List[Literal]) : Boolean = {
+  def revise(rw: ReadWrite[Set[Boolean], Boolean], c: List[Literal]) : Boolean = {
     for (Literal(expected, varId) <- c) {
       rw.contains(varId, expected) match {
         case Is() => return true
