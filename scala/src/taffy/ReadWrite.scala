@@ -13,7 +13,6 @@ import collection.mutable
 class ReadWrite[Constraint, Variables, Variable](variables: mutable.ArrayBuffer[Variables],
                                                  varsRead: mutable.Map[Int, (Variables /* original */, Option[Set[Variable]] /* passed to contains */)],
                                                  undo: mutable.Map[Int, Variables],
-                                                 setVars: mutable.Set[Int],
                                                  ranger: Ranger[Variables, Variable]) {
   type VarId = Int
 
@@ -61,7 +60,6 @@ class ReadWrite[Constraint, Variables, Variable](variables: mutable.ArrayBuffer[
   }
 
   def setVar(v : VarId, value : Variable) {
-    setVars += v
     intersectVar(v, ranger.toSingleton(value))
   }
 

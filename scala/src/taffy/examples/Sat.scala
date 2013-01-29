@@ -1,7 +1,7 @@
 package taffy.examples
 
 import taffy._
-import examples.Literal
+//import examples.Literal
 import taffy.ReadWrite.{Rejects, Is, Accepts}
 import taffy.ReadWrite.Accepts
 import taffy.ReadWrite.Is

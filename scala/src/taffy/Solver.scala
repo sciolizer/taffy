@@ -32,7 +32,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
   // possible values was constrained but not reduced to a single value.
   private val trail: mutable.Stack[(VarId, Variables /* original */, DecisionLevel /* original */)] = mutable.Stack()
 
-  private val reasons: mutable.ArrayBuffer[(DecisionLevel, Option[(Constraint, Map[VarId, Variables])])] = mutable.ArrayBuffer()
+  private val reasons: mutable.Map[(VarId, Variables), (DecisionLevel, Option[(Constraint, Map[VarId, Variables])])] = mutable.Map()
 
   private var decisionLevel: DecisionLevel = 0
 
@@ -40,11 +40,12 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
     val initialDecisionLevel: DecisionLevel = -1
     val initialCause: Option[(Constraint, Map[VarId, Variables])] = None
     val initialReason: Tuple2[DecisionLevel, Option[(Constraint, Map[VarId, Variables])]] = Tuple2(initialDecisionLevel, initialCause)
+    val allValues: Variables = problem.candidateValues
     for (vid <- 0 until problem.numVariables) {
-      variables += problem.candidateValues
+      variables += allValues
       watchers += Set.empty
       unassigned += vid
-      reasons += initialReason
+      // reasons((vid, allValues)) = initialReason
     }
     unrevised ++= problem.constraints.map(Right(_))
 
@@ -54,29 +55,26 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
         unrevised -= constraint
         val varsRead = mutable.Map[VarId, (Variables, Option[Set[Variable]])]()
         val undo = mutable.Map[VarId, Variables]()
-        val setVars: mutable.Set[VarId] = mutable.Set.empty
-        val rw = new ReadWrite[Constraint, Variables, Variable](variables, varsRead, undo, setVars, ranger)
+        val rw = new ReadWrite[Constraint, Variables, Variable](variables, varsRead, undo, ranger)
         var bj = !revise(rw, constraint)
         for ((vid, original) <- undo) {
           trail.push((vid, original, decisionLevel))
           unrevised ++= watchers(vid) - constraint // todo: don't update unrevised when bj is going to become true
           if (ranger.isEmpty(variables(vid))) {
             bj = true
+          } else if (ranger.isSingleton(variables(vid))) {
+            unassigned -= vid
           }
         }
         val reason: collection.Map[VarId, Variables] = varsRead.mapValues(_._1)
         if (bj) {
+          if (decisionLevel == 0) return None
           fuip(reason)
           if (trail.isEmpty) return None
         } else {
-          for (vid <- setVars) {
-            // If the set var was also read from, then we can't treat it as a deduction, because the reviser might
-            // have just been computing a manual intersection.
-            if (!varsRead.contains(vid)) {
-              unassigned -= vid
-              // not sure why scala can't figure out this upward cast
-              reasons(vid) = (decisionLevel, Some((constraint, reason))).asInstanceOf[Tuple2[DecisionLevel, Option[(Constraint, Map[VarId, Variables])]]]
-            }
+          for ((vid, _) <- undo) {
+            // not sure why scala can't figure out this upward cast
+            reasons((vid, variables(vid))) = (decisionLevel, Some((constraint, reason))).asInstanceOf[Tuple2[DecisionLevel, Option[(Constraint, Map[VarId, Variables])]]]
           }
           for ((varId, _) <- varsRead) {
             watchers(varId) += constraint // todo: only watch on particular values
@@ -90,8 +88,9 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
         val value = ranger.pick(values) // todo: better value picking
         // println("Assigning " + value + " to " + vid)
         unassigned -= vid
-        reasons(vid) = (decisionLevel, None)
-        variables(vid) = ranger.toSingleton(value)
+        val newValue: Variables = ranger.toSingleton(value)
+        reasons((vid, newValue)) = (decisionLevel, None)
+        variables(vid) = newValue
         trail.push((vid, /*ranger.subtraction(*/values/*, ranger.toSingleton(value))*/, decisionLevel))
         unrevised ++= watchers(vid)
       }
@@ -136,10 +135,11 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
 */
   private def undoOne() {
     /* VarId, Variables /* original */, Option[Set[Variable]] */
-    val (vid, original, dl) = trail.pop()
+    val (vid, original, _) = trail.pop()
+    val current = variables(vid)
     variables(vid) = original
     unassigned += vid
-    reasons(vid) = (-1, None)
+    reasons.remove((vid, current))
     if (trail.isEmpty) {
       decisionLevel = 0
     } else {
@@ -170,26 +170,27 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
      */
 
     // var confl = conflicting
-    val seen: mutable.Set[VarId] = mutable.Set.empty
+    val seen: mutable.Set[(VarId, Variables)] = mutable.Set.empty // set((varId, Variables))
     var counter = 0
-    var p: VarId = -1
+    var p: Any = null // (VarId, Variables)
     val nogoods: mutable.Map[Int, Variables] = mutable.Map()
     var out_btlevel = 0
     var lastReason: Any = null // but really : Variables
 
     do {
-      val p_reason = if (p == -1) firstReason else {
-        reasons(p) match {
-          case (_, None) => throw new RuntimeException("internal bug: can't find reason for " + p)
-          case (_, Some((_,reason))) => reason
+      val p_reason: collection.Map[VarId, Variables] = if (p == null) firstReason else {
+        reasons.get(p.asInstanceOf[(VarId, Variables)]) match {
+          case None => throw new RuntimeException("internal bug: can't find reason for " + p)
+          case Some((_,None)) => throw new RuntimeException("internal bug: can't find reason for " + p)
+          case Some((_,Some((_,reason)))) => reason
         }
       }
       for ((vid, values) <- p_reason) {
-        if (!seen.contains(vid)) {
-          seen += vid
-          val vidLevel: DecisionLevel = reasons(vid)._1
-          if (vidLevel == -1) {
-            throw new RuntimeException("internal bug: couldn't find decision level for " + vid)
+        if (!seen.contains((vid, values))) {          // seen contains pair
+          seen += Tuple2(vid, values)
+          val vidLevel: DecisionLevel = reasons.get((vid, values)) match {
+            case None => throw new RuntimeException("internal bug: couldn't find decision level for " + vid)
+            case Some((x,_)) => x
           }
           if (vidLevel == decisionLevel) {
             counter += 1
@@ -201,16 +202,18 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
       }
 
       do {
-        p = trail.top._1
-        lastReason = variables(p)
+        p = trail.top match {
+          case (vid, values, _) => (vid, values)
+        }
+        lastReason = variables(p.asInstanceOf[(VarId, Variables)]._1)
         undoOne()
-      } while (!seen.contains(p))
+      } while (!seen.contains(p.asInstanceOf[(VarId, Variables)]))
       counter -= 1
     } while (counter > 0)
-    nogoods(p) = lastReason.asInstanceOf[Variables]
+    nogoods(p.asInstanceOf[(VarId, Variables)]._1) = lastReason.asInstanceOf[Variables]
     // this new constraint should be unit in the variable that is about to be tried next
     val nogood: NoGood[Constraint, Variables, Variable] = new NoGood[Constraint, Variables, Variable](nogoods)
-    if (!nogood.isUnit(new ReadWrite(variables, mutable.Map(), mutable.Map(), mutable.Set(), ranger), ranger)) {
+    if (!nogood.isUnit(new ReadWrite(variables, mutable.Map(), mutable.Map(), ranger), ranger)) {
       throw new RuntimeException("generated nogood is not unit: " + nogood)
     }
     unrevised += Left(nogood)
