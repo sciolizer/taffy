@@ -47,9 +47,9 @@ class ReadWrite[Constraint, Variables, Variable](variables: mutable.ArrayBuffer[
   def contains(v : VarId, value : Variable) : Contains = {
     val candidates: Variables = variables(v)
     varsRead.get(v) match {
-      case None => varsRead(v) = (candidates, Some(Set(value)))
+      case None => varsRead(v) = (candidates, Some(Set(value))) // todo: this is good for determining watched literals but bad for nogood generation... make sure that the code in solver completely ignores this value (at least until I improve the watchers logic; even then, for populating the reasons array buffer, Solver should use the previous variable assignment, NOT the value returned in this Option of varsRead
       case Some((_,None)) => // do nothing
-      case Some((orig, Some(s))) => varsRead(v) = (orig, Some(s + value))
+      case Some((orig, Some(s))) => varsRead(v) = (orig, Some(s + value)) // todo: same problem as None case two lines up
     }
     if (ranger.isEmpty(ranger.intersection(candidates, ranger.toSingleton(value)))) {
       Rejects()
