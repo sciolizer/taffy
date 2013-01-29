@@ -88,6 +88,7 @@ class ImplicationGraph[Variables, Variable](allValues: Variables, ranger: Ranger
    * @param confl
    */
   def fuip(): (NoGood[Variables], Set[VarId] /* rewound variables */) = {
+    println("Before: " + toString())
     /*
     Ok, here's my current thoughts:
     because we have a setVar function, we can track the reasons ourselves.
@@ -142,6 +143,9 @@ class ImplicationGraph[Variables, Variable](allValues: Variables, ranger: Ranger
     if (!nogood.isUnit[Variable](new ReadWrite(this, mutable.Set(), mutable.Set(), allValues, ranger), ranger)) {
       throw new RuntimeException("generated nogood is not unit: " + nogood)
     }
+    println("nogood: " + nogood)
+    println("rewound: " + rewound)
+    println(toString())
     // todo: do something with btlevel_out... I think there might be the possibility of an infinite loop if we don't
     // because if a constraint makes TWO assignments, but only one of them gets reverted, the constraint will
     // just make the same assignment again
