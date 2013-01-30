@@ -159,6 +159,11 @@ class IntRanger extends Ranger[IntVars, Int] {
       // solver guarantees that only intersections of picked
       // values and shrunk values will ever be subtracted. todo: Find
       // a way to clearly express this invariant in the documentation.
+      // actually this is not true. e.g. in the ThreeIntEquations problem,
+      // the solver generates the nogood: a != 0 or c != 0 or b != 2
+      // This nogood is evaluated when a is zero and b is 0-5, which means
+      // the nogood has to compute [0-5] - [2-3] and verify that it is not empty
+      // so that the clause can be evaluated as true (but unable to deduce the value of c).
       throw new RuntimeException("subtraction does not produce a range")
     }
     // todo: replace with more efficient implementation
