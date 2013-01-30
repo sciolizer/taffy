@@ -16,6 +16,7 @@ import taffy.ReadWrite.Rejects
 case class Literal(expected: Boolean, vid: Int)
 
 class BVars(val candidates: Set[Boolean]) {
+  def this() = this(Set(true, false))
   override def toString: String = {
     val sb = new StringBuilder()
     sb.append("[")
