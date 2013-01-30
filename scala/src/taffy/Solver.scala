@@ -48,7 +48,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
     unrevised ++= problem.constraints.map(Right(_))
 
     while (!unrevised.isEmpty || !unassigned.isEmpty) {
-      println("unrevised: " + unrevised)
+//      println("unrevised: " + unrevised)
       if (!unrevised.isEmpty) {
         val constraint: MixedConstraint = unrevised.head
         unrevised -= constraint
@@ -59,7 +59,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
         for (vid <- writes) {
           unrevised ++= watchers(vid) - constraint // todo: don't update unrevised when bj is going to become true
           val values = graph.readVar(vid)
-          println("deduced " + vid + ": " + values)
+//          println("deduced " + vid + ": " + values)
           if (ranger.isEmpty(values)) {
             bj = true
           } else if (ranger.isSingleton(values)) {
@@ -72,7 +72,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
           while (origLevel == graph.decisionLevel) { // don't think this while loop is actually necessary, but it might be for when a constraint causes multiple variables to be in conflict at once
             val (nogood, rewound) = graph.fuip()
             //          if (graph.isEmpty) return None
-            println("rewound: " + rewound)
+//            println("rewound: " + rewound)
             unassigned ++= rewound
             unrevised += Left(nogood)
           }
@@ -86,7 +86,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
         unassigned -= vid
         val values: Variables = graph.readVar(vid)
         val value = ranger.pick(values) // todo: better value picking
-        println("picking " + vid + ": " + value)
+//        println("picking " + vid + ": " + value)
         // println("Assigning " + value + " to " + vid)
         unassigned -= vid
         val newValue: Variables = ranger.toSingleton(value)
