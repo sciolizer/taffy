@@ -30,7 +30,7 @@ class ImplicationGraph[Variables, Variable](numVariables: Int, allValues: Variab
 
   def decide(vid: VarId, value: Variables) {
     dl += 1
-    record(vid, value)
+    implies(vid, value, Set.empty)
   }
 
   private def record(vid: VarId, values: Variables): Int = {
