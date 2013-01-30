@@ -7,6 +7,8 @@ package taffy
  * Time: 4:27 PM
  */
 class NoGood[Variables](forbidden: collection.Map[Int, Variables]) {
+  def coverage(): collection.Set[Int] = forbidden.keySet
+
   def revise[Variable](rw: ReadWrite[Variables, Variable], ranger: Ranger[Variables, Variable]): Boolean = {
     getUnit(rw, ranger) match {
       case Left(b) => b

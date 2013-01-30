@@ -84,7 +84,7 @@ class ImplicationGraph[Variables, Variable](numVariables: Int, allValues: Variab
    * @param confl
    */
   def fuip(): (NoGood[Variables], Set[VarId] /* rewound variables */) = {
-//    println("Before: " + toString())
+    println("Before: " + toString())
 
     var rewound: Set[VarId] = Set.empty
 
@@ -105,18 +105,18 @@ class ImplicationGraph[Variables, Variable](numVariables: Int, allValues: Variab
     val startingDecisionLevel = decisionLevel
 
     do {
-//      println("aids: " + aids)
+      println("aids: " + aids)
       for (aid <- aids) {
         if (!seen.contains(aid)) {
           seen += aid
-//          println("seen: " + seen)
+          println("seen: " + seen)
           val assignment: (VarId, Variables, DecisionLevel) = assignments(aid)
           val vidLevel: DecisionLevel = assignment._3
           if (vidLevel == startingDecisionLevel) { // todo: is this allowed to decrease over time?
             counter += 1
           } else if (vidLevel > 0) {
             nogoods(assignment._1) = assignment._2
-//            println("nogoods: " + nogoods)
+            println("nogoods: " + nogoods)
             out_btlevel = math.max(out_btlevel, vidLevel)
           }
         }
@@ -132,7 +132,7 @@ class ImplicationGraph[Variables, Variable](numVariables: Int, allValues: Variab
         aids = implications.get(p) match { case None => null.asInstanceOf[collection.Set[AssignmentId]]; case Some(x) => x }
         undoOne()
       } while (!seen.contains(p))
-//      println("inner rewound: " + rewound)
+      println("inner rewound: " + rewound)
       counter -= 1
     } while (counter > 0)
     nogoods(lastVar) = lastReason
@@ -145,10 +145,10 @@ class ImplicationGraph[Variables, Variable](numVariables: Int, allValues: Variab
       rewound = rewound + assignments.last._1
       undoOne()
     }
-//    println("nogood: " + nogood)
-//    println("outer rewound: " + rewound)
-//    println(toString())
-//    println("btlevel_out: " + out_btlevel)
+    println("nogood: " + nogood)
+    println("outer rewound: " + rewound)
+    println(toString())
+    println("btlevel_out: " + out_btlevel)
     Tuple2(nogood, rewound)
 
     /*

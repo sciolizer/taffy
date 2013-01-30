@@ -72,7 +72,7 @@ class ExactCover extends Domain[Equation, BVars, Boolean] {
     }
   }
 
-  def coverage(c: Equation): List[ExactCover#VarId] = c.addends.map(_.variable)
+  def coverage(c: Equation): collection.Set[ExactCover#VarId] = c.addends.map(_.variable).toSet
 }
 
 object ExactCover {

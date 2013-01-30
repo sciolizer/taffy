@@ -16,5 +16,5 @@ trait Domain[Constraint, Variables, Variable] {
 
   def revise(rw : ReadWrite[Variables, Variable], c: Constraint) : Boolean
 
-  def coverage(c : Constraint) : List[VarId]
+  def coverage(c : Constraint) : collection.Set[VarId]
 }

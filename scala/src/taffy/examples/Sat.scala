@@ -81,7 +81,7 @@ class Sat extends Domain[List[Literal], BVars, Boolean] {
     }
   }
 
-  def coverage(c: List[Literal]): List[Int] = c.map(_.vid)
+  def coverage(c: List[Literal]): collection.Set[Int] = c.map(_.vid).toSet
 }
 
 object Sat {

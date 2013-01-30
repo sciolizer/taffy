@@ -48,31 +48,42 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
     unrevised ++= problem.constraints.map(Right(_))
 
     while (!unrevised.isEmpty || !unassigned.isEmpty) {
-//      println("unrevised: " + unrevised)
+      println("unrevised: " + unrevised)
       if (!unrevised.isEmpty) {
         val constraint: MixedConstraint = unrevised.head
         unrevised -= constraint
         val reads = mutable.Set[VarId]()
         val writes = mutable.Set[VarId]()
         val rw = new ReadWrite[Variables, Variable](graph, reads, writes, ranger)
-        var bj = !revise(rw, constraint)
+        val constraintUnsatisfiable = !revise(rw, constraint)
+        var emptyVar = false
         for (vid <- writes) {
           unrevised ++= watchers(vid) - constraint // todo: don't update unrevised when bj is going to become true
           val values = graph.readVar(vid)
-//          println("deduced " + vid + ": " + values)
+          println("deduced " + vid + ": " + values)
           if (ranger.isEmpty(values)) {
-            bj = true
+            emptyVar = true
           } else if (ranger.isSingleton(values)) {
             unassigned -= vid
           }
         }
-        if (bj) {
+        if (constraintUnsatisfiable && !emptyVar) {
+          // fuip expects there to be an empty variable, so we pick one arbitrarily
+          val vars = coverage(constraint)
+          if (vars.isEmpty) {
+            throw new RuntimeException("Constraint covers no variables, and yet returns false: " + constraint)
+          } else {
+            val picked = vars.head
+            rw.intersectVar(picked, ranger.subtraction(problem.candidateValues, problem.candidateValues)) // todo: traits allow partial implementation; it would be better if I moved this logic into the traits as partial definitions. in this case especially since it can be lazy
+          }
+        }
+        if (emptyVar || constraintUnsatisfiable) {
           val origLevel: Int = graph.decisionLevel
           if (origLevel == 0) return None
           while (origLevel == graph.decisionLevel) { // don't think this while loop is actually necessary, but it might be for when a constraint causes multiple variables to be in conflict at once
             val (nogood, rewound) = graph.fuip()
             //          if (graph.isEmpty) return None
-//            println("rewound: " + rewound)
+            println("rewound: " + rewound)
             unassigned ++= rewound
             unrevised += Left(nogood)
           }
@@ -86,8 +97,8 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
         unassigned -= vid
         val values: Variables = graph.readVar(vid)
         val value = ranger.pick(values) // todo: better value picking
-//        println("picking " + vid + ": " + value)
-        // println("Assigning " + value + " to " + vid)
+        println("picking " + vid + ": " + value)
+        println("Assigning " + value + " to " + vid)
         unassigned -= vid
         val newValue: Variables = ranger.toSingleton(value)
         graph.decide(vid, newValue)
@@ -101,6 +112,13 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
     constraint match {
       case Left(nogood) => nogood.revise(rw, ranger)
       case Right(c) => domain.revise(rw, c)
+    }
+  }
+
+  private def coverage(constraint: MixedConstraint): collection.Set[VarId] = {
+    constraint match {
+      case Left(nogood) => nogood.coverage()
+      case Right(c) => domain.coverage(c)
     }
   }
   /*
