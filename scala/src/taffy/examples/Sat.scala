@@ -59,7 +59,7 @@ class BVarRanger extends Ranger[BVars, Boolean] {
 class Sat extends Domain[List[Literal], BVars, Boolean] {
   def learn(constraints: List[List[Literal]]): List[(List[Literal], List[List[Literal]])] = List.empty // todo
 
-  def revise(rw: ReadWrite[BVars, Boolean], c: List[Literal]) : Boolean = {
+  def revise(rw: ReadWrite[List[Literal], BVars, Boolean], c: List[Literal]) : Boolean = {
     var accepts: Option[(Int, Boolean)] = None
     for (Literal(expected, varId) <- c) {
       rw.contains(varId, expected) match {

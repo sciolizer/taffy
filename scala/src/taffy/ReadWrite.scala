@@ -10,7 +10,8 @@ import collection.mutable
  * Time: 9:32 AM
  */
 
-class ReadWrite[Variables, Variable](graph: ImplicationGraph[Variables, Variable],
+class ReadWrite[Constraint, Variables, Variable](graph: ImplicationGraph[Constraint, Variables, Variable],
+                                     constraint: Either[NoGood[Variables], Constraint],
                                      reads: mutable.Set[Int], // var ids, for installing watchers
                                      writes: mutable.Set[Int], // var ids, for potentially removing vars from unassigned
                                      ranger: Ranger[Variables, Variable]) {
@@ -71,7 +72,7 @@ class ReadWrite[Variables, Variable](graph: ImplicationGraph[Variables, Variable
     if (!ranger.isEmpty(ranger.subtraction(original, replacement))) {
       writes += v
       val reads = Set.empty ++ assignmentReads // is there a better way? Scala collections confuse me.
-      graph.implies(v, replacement, reads)
+      graph.implies(v, replacement, reads, constraint)
     }
   }
 }

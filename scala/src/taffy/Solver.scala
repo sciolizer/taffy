@@ -34,11 +34,11 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
 
   // private val reasons: mutable.Map[(VarId, Variables), (DecisionLevel, Option[(Constraint, Map[VarId, Variables])])] = mutable.Map()
 
-  private val graph: ImplicationGraph[Variables, Variable] = new ImplicationGraph(problem.numVariables, problem.candidateValues, ranger)
+  private val graph: ImplicationGraph[Constraint, Variables, Variable] = new ImplicationGraph(problem.numVariables, problem.candidateValues, ranger)
 
   // private var decisionLevel: DecisionLevel = 0
 
-  def solve() : Option[Read[Variables, Variable]] = {
+  def solve() : Option[Read[Constraint, Variables, Variable]] = {
     val initialDecisionLevel: DecisionLevel = -1
     val initialCause: Option[(Constraint, Map[VarId, Variables])] = None
     for (vid <- 0 until problem.numVariables) {
@@ -54,7 +54,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
         unrevised -= constraint
         val reads = mutable.Set[VarId]()
         val writes = mutable.Set[VarId]()
-        val rw = new ReadWrite[Variables, Variable](graph, reads, writes, ranger)
+        val rw = new ReadWrite[Constraint, Variables, Variable](graph, constraint, reads, writes, ranger)
         val constraintUnsatisfiable = !revise(rw, constraint)
         var emptyVar = false
         for (vid <- writes) {
@@ -108,7 +108,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
     Some(new Read(graph, ranger))
   }
 
-  private def revise(rw: ReadWrite[Variables, Variable], constraint: MixedConstraint) : Boolean = {
+  private def revise(rw: ReadWrite[Constraint, Variables, Variable], constraint: MixedConstraint) : Boolean = {
     constraint match {
       case Left(nogood) => nogood.revise(rw, ranger)
       case Right(c) => domain.revise(rw, c)

@@ -10,32 +10,34 @@ import collection.immutable.Stack
  * Date: 1/29/13
  * Time: 11:23 AM
  */
-class ImplicationGraph[Variables, Variable](numVariables: Int, allValues: Variables, ranger: Ranger[Variables, Variable]) {
+class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allValues: Variables, ranger: Ranger[Variables, Variable]) {
   type VarId = Int
   type AssignmentId = Int
   type DecisionLevel = Int
+  type MixedConstraint = Either[NoGood[Variables], Constraint]
   private var dl = 0
-  private val assignments: ArrayBuffer[(VarId, Variables, DecisionLevel)] = ArrayBuffer()
+  private val assignments: ArrayBuffer[(VarId, Variables, DecisionLevel, Option[MixedConstraint])] = ArrayBuffer()
   private val implications: mutable.Map[AssignmentId, Set[AssignmentId]] = mutable.Map() // entry does not exist for decision variables
   private val varIndex: mutable.Map[VarId, Stack[AssignmentId]] = mutable.Map().withDefaultValue(Stack.empty)
 
   for (i <- 0 until numVariables) {
-    record(i, allValues)
+    record(i, allValues, None)
   }
 
-  def implies(vid: VarId, values: Variables, because: Set[AssignmentId]): AssignmentId = {
+  def implies(vid: VarId, values: Variables, because: Set[AssignmentId], constraint: MixedConstraint): AssignmentId = {
+    if (constraint == null) throw new IllegalArgumentException("constraint cannot be null")
     implications(assignments.size) = because + mostRecentAssignment(vid) // previous value of variable always plays a factor in determining its new value. todo: this is actually not true. e.g. a call to setVar involves no reading of previous values
-    record(vid, values)
+    record(vid, values, Some(constraint))
   }
 
   def decide(vid: VarId, value: Variables) {
     dl += 1
-    record(vid, value)
+    record(vid, value, None)
   }
 
-  private def record(vid: VarId, values: Variables): Int = {
+  private def record(vid: VarId, values: Variables, constraint: Option[MixedConstraint]): Int = {
     val ret: AssignmentId = assignments.size
-    assignments += ((vid, values, dl))
+    assignments += ((vid, values, dl, constraint))
     varIndex(vid) = varIndex(vid).push(ret)
     ret
   }
@@ -81,7 +83,6 @@ class ImplicationGraph[Variables, Variable](numVariables: Int, allValues: Variab
    */
   /**
    * Adapted from the minisat paper.
-   * @param confl
    */
   def fuip(): (NoGood[Variables], Set[VarId] /* rewound variables */) = {
     println("Before: " + toString())
@@ -110,7 +111,7 @@ class ImplicationGraph[Variables, Variable](numVariables: Int, allValues: Variab
         if (!seen.contains(aid)) {
           seen += aid
           println("seen: " + seen)
-          val assignment: (VarId, Variables, DecisionLevel) = assignments(aid)
+          val assignment: (VarId, Variables, DecisionLevel, Option[MixedConstraint]) = assignments(aid)
           val vidLevel: DecisionLevel = assignment._3
           if (vidLevel == startingDecisionLevel) { // todo: is this allowed to decrease over time?
             counter += 1
@@ -124,7 +125,7 @@ class ImplicationGraph[Variables, Variable](numVariables: Int, allValues: Variab
       var p: AssignmentId = null.asInstanceOf[AssignmentId]
       do {
         // todo: this loop can be made faster. See minisat C++ code. Only tricky part is probably rewound
-        val lastAssignment: (VarId, Variables, DecisionLevel) = assignments.last
+        val lastAssignment: (VarId, Variables, DecisionLevel, Option[MixedConstraint]) = assignments.last
         p = assignments.size - 1
         lastVar = lastAssignment._1
         rewound = rewound + lastVar
@@ -138,7 +139,7 @@ class ImplicationGraph[Variables, Variable](numVariables: Int, allValues: Variab
     nogoods(lastVar) = lastReason
     // this new constraint will be unit in the variable that is about to be tried next. I think.
     val nogood: NoGood[Variables] = new NoGood[Variables](nogoods)
-    if (!nogood.isUnit[Variable](new ReadWrite(this, mutable.Set(), mutable.Set(), ranger), ranger)) {
+    if (!nogood.isUnit[Constraint, Variable](new ReadWrite(this, null.asInstanceOf[MixedConstraint], mutable.Set(), mutable.Set(), ranger), ranger)) {
       throw new RuntimeException("generated nogood is not unit: " + nogood)
     }
     while (out_btlevel < decisionLevel) {
@@ -195,7 +196,7 @@ out_learnt[0] = not p
   override def toString: String = {
     val sb = new mutable.StringBuilder()
     var lastDecisionLevel = -1
-    for (((vid, values, dl), aid) <- assignments.zipWithIndex) {
+    for (((vid, values, dl, _), aid) <- assignments.zipWithIndex) {
       if (dl != lastDecisionLevel) {
         sb.append("DL(").append(dl).append(") ")
         lastDecisionLevel = dl
