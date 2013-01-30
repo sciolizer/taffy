@@ -146,15 +146,29 @@ class IntRanger extends Ranger[IntVars, Int] {
   def intersection(left: IntVars, right: IntVars): IntVars = IntVars(math.max(left.lower, right.lower), math.min(left.upper, right.upper))
 
   def subtraction(minuend: IntVars, subtrahend: IntVars): IntVars = {
+    def asSet(iv: IntVars): Set[Int] = (iv.lower until iv.upper).toSet
+    val m = asSet(minuend)
+    val s = asSet(subtrahend)
+    val diff = m -- s
+    if (diff.isEmpty) return IntVars(0, 0)
+    val ret: IntVars = IntVars(diff.min, diff.max + 1)
+    val expected = asSet(ret)
+    if (diff.equals(expected)) {
+      ret
+    } else {
+      // solver guarantees that only intersections of picked
+      // values and shrunk values will ever be subtracted. todo: Find
+      // a way to clearly express this invariant in the documentation.
+      throw new RuntimeException("subtraction does not produce a range")
+    }
+    // todo: replace with more efficient implementation
+    /*
+    if (isEmpty(subtrahend) || subtrahend.upper <= minuend.lower || subtrahend.lower >= minuend.upper) return minuend
     if (subtrahend.lower > minuend.lower && subtrahend.upper < minuend.upper) {
       // solver guarantees that only intersections of picked
       // values and shrunk values will ever be subtracted. todo: Find
       // a way to clearly express this invariant in the documentation.
-      if (isEmpty(subtrahend)) {
-        minuend
-      } else {
-        throw new RuntimeException("subtraction does not produce a range")
-      }
+      throw new RuntimeException("subtraction does not produce a range")
     } else if (subtrahend.lower >= minuend.lower) {
       if (subtrahend.upper >= minuend.upper) IntVars(0, 0) else IntVars(minuend.lower, subtrahend.lower)
     } else if (subtrahend.upper <= minuend.upper) {
@@ -162,6 +176,7 @@ class IntRanger extends Ranger[IntVars, Int] {
     } else {
       minuend
     }
+    */
   }
 
   def isEmpty(values: IntVars): Boolean = values.lower == values.upper
@@ -172,7 +187,7 @@ object TestSubtraction {
     val r = new IntRanger()
     val minuend = IntVars(1, 4)
     def s(subtrahend: IntVars, difference: IntVars) {
-      assert(r.equal(difference, r.subtraction(minuend, subtrahend)))
+      assert(difference.equals(r.subtraction(minuend, subtrahend)))
     }
     s(IntVars(0, 0), IntVars(1, 4))
     s(IntVars(0, 1), IntVars(1, 4))
@@ -194,6 +209,7 @@ object TestSubtraction {
     s(IntVars(4, 4), IntVars(1, 4))
     s(IntVars(4, 5), IntVars(1, 4))
     s(IntVars(5, 5), IntVars(1, 4))
+    assert(IntVars(0, 1).equals(r.subtraction(IntVars(0, 1), IntVars(0, 0))))
   }
 }
 
