@@ -224,9 +224,38 @@ class IntExactCover(minimum: Int, maximum: Int) extends Domain[Equation, Set[Int
 
 
   override def learn(constraints: List[(VarId, Option[MixedConstraint])]): List[(Equation, List[MixedConstraint])] = {
-//    println("to learn: " + constraints.filter(_._2 match { case Some(Right(_)) => true; case _ => false }))
-    println("to learn: " + constraints)
-    List.empty
+    val vars = constraints.map(_._1).toSet
+    val cs = (for ((_, Some(Right(eq))) <- constraints) yield { eq }).toSet.toArray
+    println("to learn: " + cs.toList)
+    var ret: mutable.Map[Equation, List[MixedConstraint]] = mutable.Map.empty
+    def toMap(eq: Equation): Map[VarId, Int] = eq.addends.map(x => (x.variable, x.coefficient)).toMap
+    for (i <- 0 until cs.size - 1) {
+      val eq1: Equation = cs(i)
+      val eq1map = toMap(eq1)
+      for (j <- i + 1 until cs.size) {
+        val eq2: Equation = cs(j)
+        val eq2map = toMap(eq2)
+        for (v <- vars) {
+          if (eq1map.contains(v) && eq2map.contains(v)) {
+            val eq1coefficient = eq1map(v)
+            val eq2coefficient = eq2map(v)
+            var learnedSum: mutable.Map[VarId, Int] = mutable.Map.empty.withDefaultValue(0)
+            def include(eq: Map[VarId, Int], multiplier: Int) {
+              for ((vid, coef) <- eq) {
+//                learnedSum(vid) += coef * multiplier // black magic
+                learnedSum(vid) = learnedSum(vid) + coef * multiplier
+              }
+            }
+            include(eq1map, -eq2coefficient)
+            include(eq2map, eq1coefficient)
+            val addends = (for ((vid, coeff) <- learnedSum; if coeff != 0) yield { Addend(coeff, vid) }).toList
+            ret(Equation(addends, eq1.sum * -eq2coefficient + eq2.sum * eq1coefficient)) = List(Right(eq1), Right(eq2))
+          }
+        }
+      }
+    }
+    println("learned: " + ret)
+    ret.toList
   }
 
   def revise(rw: ReadWrite[Equation, Set[Int], Int], c: Equation): Boolean = {
