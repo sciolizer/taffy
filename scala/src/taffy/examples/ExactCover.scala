@@ -1,6 +1,7 @@
 package taffy.examples
 
 import taffy.{Problem, Solver, ReadWrite, Domain}
+import scala.collection.mutable
 
 /**
  * Created with IntelliJ IDEA.
@@ -19,40 +20,56 @@ class ExactCover extends Domain[Equation, BVars, Boolean] {
     val (positives, negatives) = c.addends.partition(_.coefficient > 0)
     var upper = positives.map(_.coefficient).sum
     var lower = negatives.map(_.coefficient).sum
+    val settable = mutable.Set[VarId]()
     var writing = 0 // 1 means maximize, -1 means minimize
-    for (Addend(coefficient, vid) <- c.addends) {
-      if ((c.sum > upper) || (c.sum < lower)) return false
+    def outOfBounds(): Boolean = {
+      if ((c.sum > upper) || (c.sum < lower)) return true
       if (c.sum == upper) {
-        writing = 1 // maximize sum on remaining variables
+        writing = 1 // maximize sum on unset variables
       } else if (c.sum == lower) {
-        writing = -1 // minimize sum on remaining variables
+        writing = -1 // minimize sum on unset variables
       }
+      false
+    }
+    for (Addend(coefficient, vid) <- c.addends) {
+      if (outOfBounds()) return false
       if (coefficient == 0) {
         throw new RuntimeException("invalid equation: zero coefficient")
       } else {
-        if (writing == -1) {
-          rw.setVar(vid, coefficient < 0) // turn on all negatives and off all positives
-        } else if (writing == 1) {
-          rw.setVar(vid, coefficient > 0) // turn off all negatives and on all positives
-        } else {
-          val vars = rw.readVar(vid)
-          if (vars.candidates.size == 0) {
-            throw new RuntimeException("invalid state: variable was already in a contradictory state")
-          } else if (vars.candidates.size == 1) {
-            if (vars.candidates.head == coefficient > 0) {
-              // positive and var is set, or negative and var is not set.
-              // lower is not as low as it could have been
-              lower += math.abs(coefficient)
-            } else {
-              // positive and var is not set, or negative and var is set
-              // upper is not as high as it could have been
-              upper -= math.abs(coefficient)
-            }
+        val vals = rw.readVar(vid)
+        if (vals.candidates.size == 0) {
+          throw new RuntimeException("invalid state: variable was already in a contradictory state")
+        } else if (vals.candidates.size == 1) {
+          if (vals.candidates.head == coefficient > 0) {
+            // positive and var is set, or negative and var is not set.
+            // lower is thus not as low as it could have been if this var had not been set
+            lower += math.abs(coefficient)
+          } else {
+            // positive and var is not set, or negative and var is set
+            // upper is thus not as high as it could have been if this var had not been set
+            upper -= math.abs(coefficient)
           }
+        } else {
+          settable += vid
         }
       }
     }
-    lower <= c.sum && upper >= c.sum
+    if (outOfBounds()) {
+      false
+    } else if (writing == 0) {
+      true
+    } else {
+      for (Addend(coefficient, vid) <- c.addends) {
+        if (settable.contains(vid)) {
+          if (writing == -1) {
+            rw.setVar(vid, coefficient < 0) // turn on all negatives and off all positives
+          } else if (writing == 1) {
+            rw.setVar(vid, coefficient > 0) // turn off all negatives and on all positives
+          }
+        }
+      }
+      true
+    }
   }
 
   def coverage(c: Equation): List[ExactCover#VarId] = c.addends.map(_.variable)
