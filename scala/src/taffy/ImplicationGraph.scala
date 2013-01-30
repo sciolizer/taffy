@@ -108,20 +108,21 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
     val startingDecisionLevel = decisionLevel
 
     do {
-      println("aids: " + aids)
+//      println("aids: " + aids)
       for (aid <- aids) {
         if (!seen.contains(aid)) {
           seen += aid
-          println("seen: " + seen)
+//          println("seen: " + seen)
           val assignment: (VarId, Variables, DecisionLevel, Option[MixedConstraint]) = assignments(aid)
           val vidLevel: DecisionLevel = assignment._3
+          val vid: ImplicationGraph.this.type#VarId = assignment._1
           if (vidLevel == startingDecisionLevel) { // todo: is this allowed to decrease over time?
             counter += 1
-          } else if (vidLevel > 0) {
-            val vid: ImplicationGraph.this.type#VarId = assignment._1
-            nogoods = nogoods + ((vid, assignment._2))
             constraints = constraints :+ ((vid, assignment._4)) // todo: what is the performance of :+ and +: ? (also used below)
-            println("nogoods: " + nogoods)
+          } else if (vidLevel > 0) {
+            nogoods = nogoods + ((vid, assignment._2))
+//            constraints = constraints :+ ((vid, assignment._4)) // todo: what is the performance of :+ and +: ? (also used below)
+//            println("nogoods: " + nogoods)
             out_btlevel = math.max(out_btlevel, vidLevel)
           }
         }
@@ -138,11 +139,11 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
         aids = implications.get(p) match { case None => null.asInstanceOf[collection.Set[AssignmentId]]; case Some(x) => x }
         undoOne()
       } while (!seen.contains(p))
-      println("inner rewound: " + rewound)
+//      println("inner rewound: " + rewound)
       counter -= 1
     } while (counter > 0)
     nogoods = nogoods + ((lastVar, lastReason))
-    constraints = constraints :+ ((lastVar, lastConstraint))
+//    constraints = constraints :+ ((lastVar, lastConstraint))
     // this new constraint will be unit in the variable that is about to be tried next. I think.
     val nogood: NoGood[Variables] = new NoGood[Variables](nogoods)
     if (!nogood.isUnit[Constraint, Variable](new ReadWrite(this, null.asInstanceOf[MixedConstraint], mutable.Set(), mutable.Set(), ranger), ranger)) {
@@ -153,9 +154,9 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
       undoOne()
     }
     println("nogood: " + nogood)
-    println("outer rewound: " + rewound)
-    println(toString())
-    println("btlevel_out: " + out_btlevel)
+//    println("outer rewound: " + rewound)
+    println("after: " + toString())
+//    println("btlevel_out: " + out_btlevel)
     Tuple3(nogood, rewound, constraints)
 
     /*

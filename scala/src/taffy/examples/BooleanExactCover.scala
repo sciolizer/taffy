@@ -221,6 +221,14 @@ object TestSubtraction {
 class IntExactCover(minimum: Int, maximum: Int) extends Domain[Equation, Set[Int], Int] {
   if (minimum < 0) throw new IllegalArgumentException("Negative minimums is not currently supported: " + minimum)
   if (minimum > maximum) throw new IllegalArgumentException("maximum " + maximum + "must be greater than minimum " + minimum)
+
+
+  override def learn(constraints: List[(VarId, Option[MixedConstraint])]): List[(Equation, List[MixedConstraint])] = {
+//    println("to learn: " + constraints.filter(_._2 match { case Some(Right(_)) => true; case _ => false }))
+    println("to learn: " + constraints)
+    List.empty
+  }
+
   def revise(rw: ReadWrite[Equation, Set[Int], Int], c: Equation): Boolean = {
     val (positives, negatives) = c.addends.partition(_.coefficient > 0)
     var upper = positives.map(_.coefficient * maximum).sum
