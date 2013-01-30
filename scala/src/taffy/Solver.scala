@@ -48,16 +48,18 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
     unrevised ++= problem.constraints.map(Right(_))
 
     while (!unrevised.isEmpty || !unassigned.isEmpty) {
+      println("unrevised: " + unrevised)
       if (!unrevised.isEmpty) {
         val constraint: MixedConstraint = unrevised.head
         unrevised -= constraint
         val reads = mutable.Set[VarId]()
         val writes = mutable.Set[VarId]()
-        val rw = new ReadWrite[Variables, Variable](graph, reads.asInstanceOf[mutable.Set[Int]], writes.asInstanceOf[mutable.Set[Int]], ranger)
+        val rw = new ReadWrite[Variables, Variable](graph, reads, writes, ranger)
         var bj = !revise(rw, constraint)
         for (vid <- writes) {
           unrevised ++= watchers(vid) - constraint // todo: don't update unrevised when bj is going to become true
           val values = graph.readVar(vid)
+          println("deduced " + vid + ": " + values)
           if (ranger.isEmpty(values)) {
             bj = true
           } else if (ranger.isSingleton(values)) {
@@ -68,6 +70,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
           if (graph.decisionLevel == 0) return None
           val (nogood, rewound) = graph.fuip(reads)
           if (graph.isEmpty) return None
+          println("rewound: " + rewound)
           unassigned ++= rewound
           unrevised += Left(nogood)
         } else {
@@ -80,6 +83,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
         unassigned -= vid
         val values: Variables = graph.readVar(vid)
         val value = ranger.pick(values) // todo: better value picking
+        println("picking " + vid + ": " + value)
         // println("Assigning " + value + " to " + vid)
         unassigned -= vid
         val newValue: Variables = ranger.toSingleton(value)
