@@ -319,7 +319,7 @@ object ThreeIntEquations {
   def main(args: Array[String]) {
     /*
     a + b + c = 5
-    d + b + e = 5
+    a + d + e = 5
     a + b + c + d + e = 5
     All variables are either 1 or 0.
     Solver should quickly identify that b = 5 and all others are zero.
@@ -328,10 +328,10 @@ object ThreeIntEquations {
      */
     val problem = new Problem[Equation, Set[Int], Int](5,
       Set(Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2)), 5),
-        Equation(List(Addend(1, 3), Addend(1, 1), Addend(1, 4)), 5),
+        Equation(List(Addend(1, 0), Addend(1, 3), Addend(1, 4)), 5),
         Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2), Addend(1, 3), Addend(1, 4)), 5)),
-      (0 until 5).toSet)
-    val solver = new Solver[Equation, Set[Int], Int](new IntExactCover(0, 4), problem, new SetRanger())
+      (0 to 5).toSet)
+    val solver = new Solver[Equation, Set[Int], Int](new IntExactCover(0, 5), problem, new SetRanger())
     solver.solve() match {
       case None => println("No solution found")
       case Some(reader) =>
