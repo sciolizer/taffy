@@ -84,7 +84,7 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
   /**
    * Adapted from the minisat paper.
    */
-  def fuip(): (NoGood[Variables], Set[VarId] /* rewound variables */) = {
+  def fuip(): (NoGood[Variables], Set[VarId] /* rewound variables */, VarId /* fuip */, List[(VarId, MixedConstraint)]) = {
     println("Before: " + toString())
 
     var rewound: Set[VarId] = Set.empty
@@ -99,10 +99,12 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
     val seen: mutable.Set[AssignmentId] = mutable.Set.empty
     var counter = 0
     var aids: collection.Set[AssignmentId] = implications(assignments.size - 1) // todo: what if last assignment was not an empty collection?
-    val nogoods: mutable.Map[VarId, Variables] = mutable.Map()
+    var nogoods: Map[VarId, Variables] = Map.empty
+    var constraints: List[(VarId, MixedConstraint)] = List.empty
     var out_btlevel = 0
     var lastVar: VarId = null.asInstanceOf[VarId]
     var lastReason: Variables = null.asInstanceOf[Variables]
+//    var lastConstraint: MixedConstraint = null.asInstanceOf[MixedConstraint]
     val startingDecisionLevel = decisionLevel
 
     do {
@@ -116,7 +118,11 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
           if (vidLevel == startingDecisionLevel) { // todo: is this allowed to decrease over time?
             counter += 1
           } else if (vidLevel > 0) {
-            nogoods(assignment._1) = assignment._2
+            nogoods = nogoods + ((assignment._1, assignment._2))
+            assignment._4 match {
+              case None => throw new RuntimeException("internal bug: examined a decision variable during nogood generation")
+              case Some(mc) => constraints = constraints :+ ((assignment._1, mc)) // todo: what is the performance of :+ and +: ? (also used below)
+            }
             println("nogoods: " + nogoods)
             out_btlevel = math.max(out_btlevel, vidLevel)
           }
@@ -130,13 +136,16 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
         lastVar = lastAssignment._1
         rewound = rewound + lastVar
         lastReason = lastAssignment._2
+//        lastConstraint = lastAssignment._4 match { case None => null; case Some(mc) => mc }
         aids = implications.get(p) match { case None => null.asInstanceOf[collection.Set[AssignmentId]]; case Some(x) => x }
         undoOne()
       } while (!seen.contains(p))
       println("inner rewound: " + rewound)
       counter -= 1
     } while (counter > 0)
-    nogoods(lastVar) = lastReason
+    nogoods = nogoods + ((lastVar, lastReason))
+//    if (lastConstraint == null) throw new RuntimeException("internal bug: final variable examined in nogood generation was a decision variable")
+//    constraints = constraints :+ ((lastVar, lastConstraint))
     // this new constraint will be unit in the variable that is about to be tried next. I think.
     val nogood: NoGood[Variables] = new NoGood[Variables](nogoods)
     if (!nogood.isUnit[Constraint, Variable](new ReadWrite(this, null.asInstanceOf[MixedConstraint], mutable.Set(), mutable.Set(), ranger), ranger)) {
@@ -150,7 +159,7 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
     println("outer rewound: " + rewound)
     println(toString())
     println("btlevel_out: " + out_btlevel)
-    Tuple2(nogood, rewound)
+    Tuple4(nogood, rewound, lastVar, constraints)
 
     /*
     First unique implication point:

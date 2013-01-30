@@ -12,7 +12,8 @@ import scala.collection.mutable
 case class Addend(coefficient: Int, variable: Int)
 case class Equation(addends: List[Addend], sum: Int)
 class ExactCover extends Domain[Equation, BVars, Boolean] {
-  def learn(constraints: List[Equation]): List[(Equation, List[Equation])] = List() // todo
+
+  override def learn(firstUniqueImplicationPoint: ExactCover#VarId, constraints: List[(ExactCover#VarId, ExactCover#MixedConstraint)]): List[(Equation, List[ExactCover#MixedConstraint])] = List.empty
 
   def revise(rw: ReadWrite[Equation, BVars, Boolean], c: Equation): Boolean = {
     // todo: this algorithm is still incomplete; in a + b + c + d + e = 1, when it is discovered that

@@ -6,7 +6,7 @@ package taffy
  * Date: 1/28/13
  * Time: 4:27 PM
  */
-class NoGood[Variables](forbidden: collection.Map[Int, Variables]) {
+class NoGood[Variables](forbidden: Map[Int, Variables]) {
   def coverage(): collection.Set[Int] = forbidden.keySet
 
   def revise[Constraint, Variable](rw: ReadWrite[Constraint, Variables, Variable], ranger: Ranger[Variables, Variable]): Boolean = {

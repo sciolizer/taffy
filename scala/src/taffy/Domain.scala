@@ -7,12 +7,11 @@ package taffy
  * Time: 9:27 AM
  */
 
-import taffy._
-
 trait Domain[Constraint, Variables, Variable] {
   type VarId = Int
+  type MixedConstraint = Either[NoGood[Variables], Constraint]
 
-  def learn(constraints : List[Constraint]) : List[(Constraint,List[Constraint])]
+  def learn(firstUniqueImplicationPoint: VarId, constraints : List[(VarId, MixedConstraint)]) : List[(Constraint /* new constraint */,List[MixedConstraint] /* generated from */)] = List.empty
 
   def revise(rw : ReadWrite[Constraint, Variables, Variable], c: Constraint) : Boolean
 

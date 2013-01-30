@@ -81,11 +81,18 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
           val origLevel: Int = graph.decisionLevel
           if (origLevel == 0) return None
           while (origLevel == graph.decisionLevel) { // don't think this while loop is actually necessary, but it might be for when a constraint causes multiple variables to be in conflict at once
-            val (nogood, rewound) = graph.fuip()
+            val (nogood, rewound, f, constraints) = graph.fuip()
             //          if (graph.isEmpty) return None
             println("rewound: " + rewound)
             unassigned ++= rewound
             unrevised += Left(nogood)
+            /*
+            data.partition(_.isLeft) match {
+  case (Nil,  ints) => Right(for(Right(i) <- ints.view) yield i)
+  case (strings, _) => Left(for(Left(s) <- strings.view) yield s)
+}
+             */
+            unrevised ++= domain.learn(f, constraints).map(x => Right(x._1)) // todo: incorporate _2 after isomorphisms have been implemented
           }
         } else {
           for (varId <- reads) {
