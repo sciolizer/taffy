@@ -123,12 +123,12 @@ object ThreeBooleanEquations {
   }
 }
 
-case class IntVars(lower: Int, upper: Int) // lower >= 0 (inclusive), upper <= 100 (exclusive), lower <= upper. lower == upper implies empty range
+//case class IntVars(lower: Int, upper: Int) // lower >= 0 (inclusive), upper <= 100 (exclusive), lower <= upper. lower == upper implies empty range
+/*
+class IntRanger extends Ranger[Set[Int], Int] {
+  def pick(values: Set[Int]): Int = values.head
 
-class IntRanger extends Ranger[IntVars, Int] {
-  def pick(values: IntVars): Int = values.lower
-
-  def toSingleton(value: Int): IntVars = IntVars(value, value + 1)
+  def toSingleton(value: Int): Set[Int] = Set(value)
 
   /**
    * Inverse of toSingleton. If the collection is not a singleton,
@@ -139,13 +139,13 @@ class IntRanger extends Ranger[IntVars, Int] {
    * @param values A collection expected to be a singleton.
    * @return The single value in the given collection.
    */
-  def fromSingleton(values: IntVars): Int = if (isSingleton(values)) values.lower else throw new RuntimeException("int var not a singleton: " + values)
+  def fromSingleton(values: Set[Int]): Int = if (isSingleton(values)) values.head else throw new RuntimeException("int var not a singleton: " + values)
 
-  def isSingleton(values: IntVars): Boolean = values.lower == values.upper - 1
+  def isSingleton(values: Set[Int]): Boolean = values.size == 1
 
-  def intersection(left: IntVars, right: IntVars): IntVars = IntVars(math.max(left.lower, right.lower), math.min(left.upper, right.upper))
+  def intersection(left: Set[Int], right: Set[Int]): Set[Int] = left.intersect(right)
 
-  def subtraction(minuend: IntVars, subtrahend: IntVars): IntVars = {
+  def subtraction(minuend: Set[Int], subtrahend: Set[Int]): Set[Int] = minuend -- subtrahend /*{
     def asSet(iv: IntVars): Set[Int] = (iv.lower until iv.upper).toSet
     val m = asSet(minuend)
     val s = asSet(subtrahend)
@@ -165,7 +165,7 @@ class IntRanger extends Ranger[IntVars, Int] {
       // the nogood has to compute [0-5] - [2-3] and verify that it is not empty
       // so that the clause can be evaluated as true (but unable to deduce the value of c).
       throw new RuntimeException("subtraction does not produce a range")
-    }
+    }     */
     // todo: replace with more efficient implementation
     /*
     if (isEmpty(subtrahend) || subtrahend.upper <= minuend.lower || subtrahend.lower >= minuend.upper) return minuend
@@ -182,11 +182,11 @@ class IntRanger extends Ranger[IntVars, Int] {
       minuend
     }
     */
-  }
+  //}
 
-  def isEmpty(values: IntVars): Boolean = values.lower == values.upper
-}
-
+  def isEmpty(values: Set[Int]): Boolean = values.isEmpty
+}     */
+        /*
 object TestSubtraction {
   def main(args: Array[String]) {
     val r = new IntRanger()
@@ -216,16 +216,16 @@ object TestSubtraction {
     s(IntVars(5, 5), IntVars(1, 4))
     assert(IntVars(0, 1).equals(r.subtraction(IntVars(0, 1), IntVars(0, 0))))
   }
-}
+}         */
 
-class IntExactCover extends Domain[Equation, IntVars, Int] {
-  val ranger = new IntRanger()
-  def revise(rw: ReadWrite[Equation, IntVars, Int], c: Equation): Boolean = {
-    // assumes that each variable is >= 0 and < 100.
+class IntExactCover(minimum: Int, maximum: Int) extends Domain[Equation, Set[Int], Int] {
+  if (minimum < 0) throw new IllegalArgumentException("Negative minimums is not currently supported: " + minimum)
+  if (minimum > maximum) throw new IllegalArgumentException("maximum " + maximum + "must be greater than minimum " + minimum)
+  def revise(rw: ReadWrite[Equation, Set[Int], Int], c: Equation): Boolean = {
     val (positives, negatives) = c.addends.partition(_.coefficient > 0)
-    var upper = positives.map(_.coefficient * 99).sum // inclusive, unlike IntVars.upper, which is exclusive
-    var lower = negatives.map(_.coefficient * 99).sum // inclusive
-    val settable = mutable.Map[VarId, IntVars]()
+    var upper = positives.map(_.coefficient * maximum).sum
+    var lower = negatives.map(_.coefficient * maximum).sum
+    val settable = mutable.Map[VarId, Set[Int]]()
     var writing = 0 // 1 means maximize, -1 means minimize
     def outOfBounds(): Boolean = {
       if ((c.sum > upper) || (c.sum < lower)) return true
@@ -242,14 +242,14 @@ class IntExactCover extends Domain[Equation, IntVars, Int] {
         throw new RuntimeException("invalid equation: zero coefficient")
       } else {
         val vals = rw.readVar(vid)
-        if (ranger.isEmpty(vals)) {
+        if (vals.isEmpty) {
           throw new RuntimeException("invalid state: variable was already in a contradictory state")
-        } else if (ranger.isSingleton(vals)) {
-          val value = vals.lower * coefficient
-          val minimum = if (coefficient < 0) 99 * coefficient else 0
-          val maximum = if (coefficient > 0) 99 * coefficient else 0
-          lower += (value - minimum)
-          upper -= (maximum - value)
+        } else if (vals.size == 1) {
+          val value = vals.head * coefficient
+          val min = coefficient * (if (coefficient < 0) maximum else minimum)
+          val max = coefficient * (if (coefficient > 0) maximum else minimum)
+          lower += (value - min)
+          upper -= (max - value)
         } else {
           settable += ((vid, vals))
         }
@@ -265,9 +265,9 @@ class IntExactCover extends Domain[Equation, IntVars, Int] {
           case None =>
           case Some(vals) =>
             if (writing == -1) {
-              rw.setVar(vid, if (coefficient < 0) vals.upper - 1 else vals.lower)
+              rw.setVar(vid, if (coefficient < 0) vals.max else vals.min)
             } else if (writing == 1) {
-              rw.setVar(vid, if (coefficient > 0) vals.lower else vals.upper - 1)
+              rw.setVar(vid, if (coefficient > 0) vals.max else vals.min)
             }
         }
       }
@@ -289,12 +289,12 @@ object ThreeIntEquations {
     No good generation is insufficient to do this; we need to implement the learn function
     on the domain.
      */
-    val problem = new Problem[Equation, IntVars, Int](5,
+    val problem = new Problem[Equation, Set[Int], Int](5,
       Set(Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2)), 5),
         Equation(List(Addend(1, 3), Addend(1, 1), Addend(1, 4)), 5),
         Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2), Addend(1, 3), Addend(1, 4)), 5)),
-      new IntVars(0, 5))
-    val solver = new Solver(new IntExactCover(), problem, new IntRanger())
+      (0 until 5).toSet)
+    val solver = new Solver[Equation, Set[Int], Int](new IntExactCover(0, 4), problem, new SetRanger())
     solver.solve() match {
       case None => println("No solution found")
       case Some(reader) =>
