@@ -69,7 +69,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
         if (bj) {
           if (graph.decisionLevel == 0) return None
           val (nogood, rewound) = graph.fuip(reads)
-          if (graph.isEmpty) return None
+//          if (graph.isEmpty) return None
           println("rewound: " + rewound)
           unassigned ++= rewound
           unrevised += Left(nogood)

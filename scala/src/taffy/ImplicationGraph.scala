@@ -24,9 +24,8 @@ class ImplicationGraph[Variables, Variable](numVariables: Int, allValues: Variab
   }
 
   def implies(vid: VarId, values: Variables, because: Set[AssignmentId]): AssignmentId = {
-    val ret: AssignmentId = record(vid, values)
-    implications(ret) = because
-    ret
+    implications(assignments.size) = because + mostRecentAssignment(vid) // previous value of variable always plays a factor in determining its new value. todo: this is actually not true. e.g. a call to setVar involves no reading of previous values
+    record(vid, values)
   }
 
   def decide(vid: VarId, value: Variables) {

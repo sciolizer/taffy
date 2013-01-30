@@ -14,6 +14,8 @@ class ExactCover extends Domain[Equation, BVars, Boolean] {
   def learn(constraints: List[Equation]): List[(Equation, List[Equation])] = List() // todo
 
   def revise(rw: ReadWrite[BVars, Boolean], c: Equation): Boolean = {
+    // todo: this algorithm is still incomplete; in a + b + c + d + e = 1, when it is discovered that
+    // c is true, the rest should be put to false. Currently only d and e are put to false.
     val (positives, negatives) = c.addends.partition(_.coefficient > 0)
     var upper = positives.map(_.coefficient).sum
     var lower = negatives.map(_.coefficient).sum
