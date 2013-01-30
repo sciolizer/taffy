@@ -105,13 +105,16 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
         var vid = unassigned.head // todo: better variable ordering
         unassigned -= vid
         val values: Variables = graph.readVar(vid)
-        val value = ranger.pick(values) // todo: better value picking
-        println("picking " + vid + ": " + value)
-        println("Assigning " + value + " to " + vid)
-        unassigned -= vid
-        val newValue: Variables = ranger.toSingleton(value)
-        graph.decide(vid, newValue)
-        unrevised ++= watchers(vid)
+        if (!ranger.isSingleton(values)) {
+          // todo: better value picking; also, is it reasonable to pick a set of the values,
+          // instead of a single value, so that no goods can be more useful? Of course, if any value is a valid
+          // pick, then that would be a waste.
+          val value = ranger.pick(values)
+          println("picking " + vid + ": " + value)
+          val newValue: Variables = ranger.toSingleton(value)
+          graph.decide(vid, newValue)
+        }
+        unrevised ++= watchers(vid) // todo: is this necessary if values IS a singleton?
       }
     }
     Some(new Read(graph, ranger))
