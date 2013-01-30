@@ -36,6 +36,8 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
 
   private val graph: ImplicationGraph[Constraint, Variables, Variable] = new ImplicationGraph(problem.numVariables, problem.candidateValues, ranger)
 
+  private val emptyVals: Variables = ranger.subtraction(problem.candidateValues, problem.candidateValues)
+
   // private var decisionLevel: DecisionLevel = 0
 
   def solve() : Option[Read[Constraint, Variables, Variable]] = {
@@ -74,7 +76,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
             throw new RuntimeException("Constraint covers no variables, and yet returns false: " + constraint)
           } else {
             val picked = vars.head
-            rw.intersectVar(picked, ranger.subtraction(problem.candidateValues, problem.candidateValues)) // todo: traits allow partial implementation; it would be better if I moved this logic into the traits as partial definitions. in this case especially since it can be lazy
+            rw.intersectVar(picked, emptyVals)
           }
         }
         if (emptyVar || constraintUnsatisfiable) {

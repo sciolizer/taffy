@@ -28,6 +28,10 @@ trait Ranger[Values, Value] {
   def intersection(left: Values, right: Values) : Values
   def subtraction(minuend: Values, subtrahend: Values): Values
   def isEmpty(values: Values) : Boolean
+
+  def equal(left: Values, right: Values): Boolean = {
+    isEmpty(subtraction(left, right)) && isEmpty(subtraction(right, left))
+  }
 }
 
 class SetRanger[Variable] extends Ranger[Set[Variable], Variable] {

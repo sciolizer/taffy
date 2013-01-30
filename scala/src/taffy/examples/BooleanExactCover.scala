@@ -150,17 +150,51 @@ class IntRanger extends Ranger[IntVars, Int] {
       // solver guarantees that only intersections of picked
       // values and shrunk values will ever be subtracted. todo: Find
       // a way to clearly express this invariant in the documentation.
-      throw new RuntimeException("subtraction does not produce a range")
-    } else if (subtrahend.lower > minuend.lower) {
-      IntVars(minuend.lower, subtrahend.lower)
-    } else if (subtrahend.upper < minuend.upper) {
-      IntVars(subtrahend.upper + 1, minuend.upper)
+      if (isEmpty(subtrahend)) {
+        minuend
+      } else {
+        throw new RuntimeException("subtraction does not produce a range")
+      }
+    } else if (subtrahend.lower >= minuend.lower) {
+      if (subtrahend.upper >= minuend.upper) IntVars(0, 0) else IntVars(minuend.lower, subtrahend.lower)
+    } else if (subtrahend.upper <= minuend.upper) {
+      if (subtrahend.lower <= minuend.lower) IntVars(0, 0) else IntVars(subtrahend.upper + 1, minuend.upper)
     } else {
-      IntVars(0, 0)
+      minuend
     }
   }
 
   def isEmpty(values: IntVars): Boolean = values.lower == values.upper
+}
+
+object TestSubtraction {
+  def main(args: Array[String]) {
+    val r = new IntRanger()
+    val minuend = IntVars(1, 4)
+    def s(subtrahend: IntVars, difference: IntVars) {
+      assert(r.equal(difference, r.subtraction(minuend, subtrahend)))
+    }
+    s(IntVars(0, 0), IntVars(1, 4))
+    s(IntVars(0, 1), IntVars(1, 4))
+    s(IntVars(0, 2), IntVars(2, 4))
+    s(IntVars(0, 3), IntVars(3, 4))
+    s(IntVars(0, 4), IntVars(0, 0))
+    s(IntVars(0, 5), IntVars(0, 0))
+    s(IntVars(1, 1), IntVars(1, 4))
+    s(IntVars(1, 2), IntVars(2, 4))
+    s(IntVars(1, 3), IntVars(3, 4))
+    s(IntVars(1, 4), IntVars(0, 0))
+    s(IntVars(1, 5), IntVars(0, 0))
+    s(IntVars(2, 2), IntVars(1, 4))
+    s(IntVars(2, 4), IntVars(1, 2))
+    s(IntVars(2, 5), IntVars(1, 2))
+    s(IntVars(3, 3), IntVars(1, 4))
+    s(IntVars(3, 4), IntVars(1, 3))
+    s(IntVars(3, 5), IntVars(1, 3))
+    s(IntVars(4, 4), IntVars(1, 4))
+    s(IntVars(4, 5), IntVars(1, 4))
+    s(IntVars(5, 5), IntVars(1, 4))
+  }
 }
 
 class IntExactCover extends Domain[Equation, IntVars, Int] {
