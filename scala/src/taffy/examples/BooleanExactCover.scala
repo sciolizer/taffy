@@ -18,7 +18,7 @@ case class Equation(addends: List[Addend], sum: Int)
 class BooleanExactCover extends Domain[Equation, BVars, Boolean] {
   // todo: this is a special case of IntExactCover, so just delegate
   // to that implementation
-  override def learn(firstUniqueImplicationPoint: BooleanExactCover#VarId, constraints: List[(BooleanExactCover#VarId, BooleanExactCover#MixedConstraint)]): List[(Equation, List[BooleanExactCover#MixedConstraint])] = List.empty
+//  override def learn(firstUniqueImplicationPoint: BooleanExactCover#VarId, constraints: List[(BooleanExactCover#VarId, BooleanExactCover#MixedConstraint)]): List[(Equation, List[BooleanExactCover#MixedConstraint])] = List.empty
 
   def revise(rw: ReadWrite[Equation, BVars, Boolean], c: Equation): Boolean = {
     // todo: this algorithm is still incomplete; in a + b + c + d + e = 1, when it is discovered that

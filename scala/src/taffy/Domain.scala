@@ -14,11 +14,10 @@ trait Domain[Constraint, Variables, Variable] {
   /**
    * The first unique implication point might be a key in constraints if the chain of constraint revisions
    * boomeranged back to the FUIP.
-   * @param firstUniqueImplicationPoint
    * @param constraints
    * @return
    */
-  def learn(firstUniqueImplicationPoint: VarId, constraints : List[(VarId, MixedConstraint)]) : List[(Constraint /* new constraint */,List[MixedConstraint] /* generated from */)] = List.empty
+  def learn(constraints : List[(VarId, Option[MixedConstraint])]) : List[(Constraint /* new constraint */,List[MixedConstraint] /* generated from */)] = List.empty
 
   def revise(rw : ReadWrite[Constraint, Variables, Variable], c: Constraint) : Boolean
 
