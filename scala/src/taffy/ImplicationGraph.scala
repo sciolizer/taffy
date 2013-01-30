@@ -85,27 +85,21 @@ class ImplicationGraph[Variables, Variable](numVariables: Int, allValues: Variab
    * @param confl
    */
   def fuip(reads: collection.Set[VarId]): (NoGood[Variables], Set[VarId] /* rewound variables */) = {
-//    println("Before: " + toString())
-//    println("Reads: " + reads)
+    println("Before: " + toString())
+    println("Reads: " + reads)
 
     // var confl = conflicting
     val seen: mutable.Set[AssignmentId] = mutable.Set.empty
     var counter = 0
-    var p: AssignmentId = null.asInstanceOf[AssignmentId]
+    var aids: collection.Set[AssignmentId] = reads.map(mostRecentAssignment(_))
     val nogoods: mutable.Map[VarId, Variables] = mutable.Map()
     var out_btlevel = 0
     var lastVar: VarId = null.asInstanceOf[VarId]
     var lastReason: Variables = null.asInstanceOf[Variables]
     var rewound: Set[VarId] = Set.empty
     val startingDecisionLevel = decisionLevel
-    var firstTime = true
 
     do {
-      val aids: collection.Set[AssignmentId] = if (firstTime) {
-        reads.map(mostRecentAssignment(_))
-      } else {
-        implications(p)
-      }
       for (aid <- aids) {
         if (!seen.contains(aid)) {
           seen += aid
@@ -119,7 +113,7 @@ class ImplicationGraph[Variables, Variable](numVariables: Int, allValues: Variab
           }
         }
       }
-
+      var p: AssignmentId = null.asInstanceOf[AssignmentId]
       do {
         // todo: this loop can be made faster. See minisat C++ code. Only tricky part is probably rewound
         val lastAssignment: (VarId, Variables, DecisionLevel) = assignments.last
@@ -127,17 +121,14 @@ class ImplicationGraph[Variables, Variable](numVariables: Int, allValues: Variab
         lastVar = lastAssignment._1
         rewound = rewound + lastVar
         lastReason = lastAssignment._2
+        aids = implications.get(p) match { case None => null.asInstanceOf[collection.Set[AssignmentId]]; case Some(x) => x }
         undoOne()
       } while (!seen.contains(p))
       counter -= 1
-      firstTime = false
     } while (counter > 0)
     nogoods(lastVar) = lastReason
     // this new constraint will be unit in the variable that is about to be tried next. I think.
     val nogood: NoGood[Variables] = new NoGood[Variables](nogoods)
-//    println("nogood: " + nogood)
-//    println("rewound: " + rewound)
-//    println(toString())
     if (!nogood.isUnit[Variable](new ReadWrite(this, mutable.Set(), mutable.Set(), ranger), ranger)) {
       throw new RuntimeException("generated nogood is not unit: " + nogood)
     }
@@ -145,7 +136,10 @@ class ImplicationGraph[Variables, Variable](numVariables: Int, allValues: Variab
       rewound = rewound + assignments.last._1
       undoOne()
     }
-//    println("btlevel_out: " + out_btlevel)
+    println("nogood: " + nogood)
+    println("rewound: " + rewound)
+    println(toString())
+    println("btlevel_out: " + out_btlevel)
     Tuple2(nogood, rewound)
 
     /*

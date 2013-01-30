@@ -68,9 +68,11 @@ class ReadWrite[Variables, Variable](graph: ImplicationGraph[Variables, Variable
   private def replace(v: VarId, replacer: Variables => Variables) {
     val original = graph.readVar(v)
     val replacement = replacer(original)
-    if (!ranger.isEmpty(ranger.subtraction(original, replacement))) writes += v
-    val reads = Set.empty ++ assignmentReads // is there a better way? Scala collections confuse me.
-    graph.implies(v, replacement, reads)
+    if (!ranger.isEmpty(ranger.subtraction(original, replacement))) {
+      writes += v
+      val reads = Set.empty ++ assignmentReads // is there a better way? Scala collections confuse me.
+      graph.implies(v, replacement, reads)
+    }
   }
 }
 
