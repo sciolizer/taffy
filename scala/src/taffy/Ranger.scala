@@ -7,6 +7,8 @@ package taffy
  * Time: 11:12 AM
  */
 trait Ranger[Values, Value] {
+  // value returned should guarantee that
+  //   values - value does not raise an error
   def pick(values: Values) : Value
 
   def toSingleton(value: Value) : Values
