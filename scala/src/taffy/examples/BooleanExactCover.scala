@@ -293,8 +293,8 @@ object ThreeIntEquations {
       Set(Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2)), 5),
         Equation(List(Addend(1, 3), Addend(1, 1), Addend(1, 4)), 5),
         Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2), Addend(1, 3), Addend(1, 4)), 5)),
-      (0 to 5).toSet)
-    val solver = new Solver[Equation, Set[Int], Int](new IntExactCover(0, 5), problem, new SetRanger())
+      (0 until 5).toSet)
+    val solver = new Solver[Equation, Set[Int], Int](new IntExactCover(0, 4), problem, new SetRanger())
     solver.solve() match {
       case None => println("No solution found")
       case Some(reader) =>
