@@ -67,12 +67,15 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
           }
         }
         if (bj) {
-          if (graph.decisionLevel == 0) return None
-          val (nogood, rewound) = graph.fuip(reads)
-//          if (graph.isEmpty) return None
-          println("rewound: " + rewound)
-          unassigned ++= rewound
-          unrevised += Left(nogood)
+          val origLevel: Int = graph.decisionLevel
+          if (origLevel == 0) return None
+          while (origLevel == graph.decisionLevel) { // don't think this while loop is actually necessary, but it might be for when a constraint causes multiple variables to be in conflict at once
+            val (nogood, rewound) = graph.fuip()
+            //          if (graph.isEmpty) return None
+            println("rewound: " + rewound)
+            unassigned ++= rewound
+            unrevised += Left(nogood)
+          }
         } else {
           for (varId <- reads) {
             watchers(varId) += constraint // todo: only watch on particular values
