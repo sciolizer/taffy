@@ -229,12 +229,13 @@ object ThreeIntEquations {
     No good generation is insufficient to do this; we need to implement the learn function
     on the domain.
      */
+    val cap = 2
     val problem = new Problem[Equation, Set[Int], Int](5,
-      Set(Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2)), Eq(), 5),
-        Equation(List(Addend(1, 0), Addend(1, 3), Addend(1, 4)), Eq(), 5),
-        Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2), Addend(1, 3), Addend(1, 4)), Eq(), 5)),
-      (0 to 5).toSet)
-    val solver = new Solver[Equation, Set[Int], Int](new BoundedSum(0, 5), problem, new SetRanger())
+      Set(Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2)), Eq(), cap),
+        Equation(List(Addend(1, 0), Addend(1, 3), Addend(1, 4)), Eq(), cap),
+        Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2), Addend(1, 3), Addend(1, 4)), Eq(), cap)),
+      (0 to cap).toSet)
+    val solver = new Solver[Equation, Set[Int], Int](new BoundedSum(0, cap), problem, new SetRanger())
     solver.solve() match {
       case None => println("No solution found")
       case Some(reader) =>
