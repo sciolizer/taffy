@@ -62,26 +62,26 @@ class BoundedSum(minimum: Int, maximum: Int /*, ordering: WellOrdered */) extend
     var upper = positives.map(_.coefficient * maximum).sum
     var lower = negatives.map(_.coefficient * maximum).sum
     val settable = mutable.Map[VarId, Set[Int]]()
-    var writing = 0 // 1 means maximize, -1 means minimize
-    def outOfBounds(): Boolean = {
-      def lteq(): Boolean = {
-        if (lower > e.sum) return true
-        if (lower == e.sum) writing = -1 // minimize sum on settable variables
-        false
-      }
-      def gteq(): Boolean = {
-        if (upper < e.sum) return true
-        if (upper == e.sum) writing = 1 // maximize sum on settable variables
-        false
-      }
+    def outOfBounds(l: Int, u: Int): Boolean = {
+      def lteq(): Boolean = l > e.sum
+      def gteq(): Boolean = u < e.sum
       e.relation match {
         case Eq() => lteq() || gteq()
         case LtEq() => lteq()
         case GtEq() => gteq()
       }
     }
+    def adjustedRange(coefficient: Int, minval: Int, maxval: Int, origMinVal: Int, origMaxVal: Int): (Int, Int) = {
+      val minAdjustment = math.abs(coefficient * (minval - origMinVal))
+      val maxAdjustment = math.abs(coefficient * (maxval - origMaxVal))
+      if (coefficient > 0) {
+        ((lower + minAdjustment, upper - maxAdjustment))
+      } else {
+        ((lower + maxAdjustment, upper - minAdjustment))
+      }
+    }
     for (Addend(coefficient, vid) <- e.addends) {
-      if (outOfBounds()) return false
+      if (outOfBounds(lower, upper)) return false
       if (coefficient == 0) {
         throw new RuntimeException("invalid equation: zero coefficient")
       } else {
@@ -89,35 +89,24 @@ class BoundedSum(minimum: Int, maximum: Int /*, ordering: WellOrdered */) extend
         if (vals.isEmpty) {
           throw new RuntimeException("invalid state: variable was already in a contradictory state")
         } else {
-          val minAdjustment = math.abs(coefficient * (vals.min - minimum))
-          val maxAdjustment = math.abs(coefficient * (vals.max - maximum))
-          if (coefficient > 0) {
-            lower += minAdjustment
-            upper -= maxAdjustment
-          } else {
-            lower += maxAdjustment
-            upper -= minAdjustment
-          }
+          val adjusted: (Int, Int) = adjustedRange(coefficient, vals.min, vals.max, minimum, maximum)
+          lower = adjusted._1
+          upper = adjusted._2
+//          (lower, upper) = adjustedRange(coefficient, vals.min, vals.max)
           if (vals.size > 1) settable += ((vid, vals))
         }
       }
     }
-    if (outOfBounds()) {
+    if (outOfBounds(lower, upper)) {
       false
-    } else if (writing == 0) {
-      if (settable.size == 1) {
-        rw.setVar(settable.keys.head, e.sum - lower)
-      }
-      true
     } else {
       for (Addend(coefficient, vid) <- e.addends) {
         settable.get(vid) match {
           case None =>
           case Some(vals) =>
-            if (writing == -1) {
-              rw.setVar(vid, if (coefficient < 0) vals.max else vals.min)
-            } else if (writing == 1) {
-              rw.setVar(vid, if (coefficient > 0) vals.max else vals.min)
+            for (value <- vals) { // todo: find a faster way to do this
+              val (l, u) = adjustedRange(coefficient, value, value, vals.min, vals.max)
+              if (outOfBounds(l, u)) rw.shrinkVar(vid, value)
             }
         }
       }
@@ -164,6 +153,7 @@ object TestBoundedSum {
       val rw = new ReadWriteMock[Set[Int], Int](Map(0 -> Set(0), 1 -> Set(0, 1, 2), 2 -> Set(0, 1, 2)), new SetRanger())
       val bs = new BoundedSum(0, 3)
       assert(bs.revise(rw, Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2)), Eq(), 4)))
+      println(rw.changes)
       assert(rw.changes.equals(Map(1 -> Set(2), 2 -> Set(2))))
     }
 
