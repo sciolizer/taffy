@@ -8,8 +8,9 @@ import taffy.{SetRanger, ReadWriteMock, ReadWrite, Domain}
  * User: jball
  * Date: 1/31/13
  * Time: 10:16 AM
+ *
  */
-class BoundedSum(minimum: Int, maximum: Int) extends Domain[Equation, Set[Int], Int] {
+class BoundedSum(minimum: Int, maximum: Int /*, ordering: WellOrdered */) extends Domain[Equation, Set[Int], Int] {
   if (minimum < 0) throw new IllegalArgumentException("Negative minimums is not currently supported: " + minimum)
   if (minimum > maximum) throw new IllegalArgumentException("maximum " + maximum + "must be greater than minimum " + minimum)
 
@@ -80,14 +81,17 @@ class BoundedSum(minimum: Int, maximum: Int) extends Domain[Equation, Set[Int], 
         val vals = rw.readVar(vid)
         if (vals.isEmpty) {
           throw new RuntimeException("invalid state: variable was already in a contradictory state")
-        } else if (vals.size == 1) {
-          val value = vals.head * coefficient
-          val min = coefficient * (if (coefficient < 0) maximum else minimum)
-          val max = coefficient * (if (coefficient > 0) maximum else minimum)
-          lower += (value - min)
-          upper -= (max - value)
         } else {
-          settable += ((vid, vals)) // todo: actually, lower and upper can still be modified in this case. Just need to look at vals.max and vals.min
+          val minAdjustment = math.abs(coefficient * (vals.min - minimum))
+          val maxAdjustment = math.abs(coefficient * (vals.max - maximum))
+          if (coefficient > 0) {
+            lower += minAdjustment
+            upper -= maxAdjustment
+          } else {
+            lower += maxAdjustment
+            upper -= minAdjustment
+          }
+          if (vals.size > 1) settable += ((vid, vals))
         }
       }
     }
