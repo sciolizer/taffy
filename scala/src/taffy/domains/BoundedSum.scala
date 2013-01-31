@@ -13,7 +13,7 @@ class BoundedSum(minimum: Int, maximum: Int) extends Domain[Equation, Set[Int], 
   if (minimum < 0) throw new IllegalArgumentException("Negative minimums is not currently supported: " + minimum)
   if (minimum > maximum) throw new IllegalArgumentException("maximum " + maximum + "must be greater than minimum " + minimum)
 
-
+                                  /*
   override def learn(constraints: List[(VarId, Option[MixedConstraint])]): List[(Equation, List[MixedConstraint])] = {
     val vars = constraints.map(_._1).toSet
     val cs = (for ((_, Some(Right(eq))) <- constraints) yield { eq }).toSet.toArray
@@ -47,24 +47,32 @@ class BoundedSum(minimum: Int, maximum: Int) extends Domain[Equation, Set[Int], 
     }
     println("learned: " + ret)
     ret.toList
-  }
+  }          */
 
-  def revise(rw: ReadWrite[Equation, Set[Int], Int], c: Equation): Boolean = {
-    val (positives, negatives) = c.addends.partition(_.coefficient > 0)
+  def revise(rw: ReadWrite[Equation, Set[Int], Int], e: Equation): Boolean = {
+    val (positives, negatives) = e.addends.partition(_.coefficient > 0)
     var upper = positives.map(_.coefficient * maximum).sum
     var lower = negatives.map(_.coefficient * maximum).sum
     val settable = mutable.Map[VarId, Set[Int]]()
     var writing = 0 // 1 means maximize, -1 means minimize
     def outOfBounds(): Boolean = {
-      if ((c.sum > upper) || (c.sum < lower)) return true
-      if (c.sum == upper) {
-        writing = 1 // maximize sum on unset variables
-      } else if (c.sum == lower) {
-        writing = -1 // minimize sum on unset variables
+      def lteq(): Boolean = {
+        if (lower > e.sum) return true
+        if (lower == e.sum) writing = -1 // minimize sum on settable variables
+        false
       }
-      false
+      def gteq(): Boolean = {
+        if (upper < e.sum) return true
+        if (upper == e.sum) writing = 1 // maximize sum on settable variables
+        false
+      }
+      e.relation match {
+        case Eq() => lteq() || gteq()
+        case LtEq() => lteq()
+        case GtEq() => gteq()
+      }
     }
-    for (Addend(coefficient, vid) <- c.addends) {
+    for (Addend(coefficient, vid) <- e.addends) {
       if (outOfBounds()) return false
       if (coefficient == 0) {
         throw new RuntimeException("invalid equation: zero coefficient")
@@ -88,7 +96,7 @@ class BoundedSum(minimum: Int, maximum: Int) extends Domain[Equation, Set[Int], 
     } else if (writing == 0) {
       true
     } else {
-      for (Addend(coefficient, vid) <- c.addends) {
+      for (Addend(coefficient, vid) <- e.addends) {
         settable.get(vid) match {
           case None =>
           case Some(vals) =>
@@ -107,4 +115,8 @@ class BoundedSum(minimum: Int, maximum: Int) extends Domain[Equation, Set[Int], 
 }
 
 case class Addend(coefficient: Int, variable: Int)
-case class Equation(addends: List[Addend], sum: Int)
+case class Equation(addends: List[Addend], relation: Relation, sum: Int)
+abstract class Relation
+case class Eq() extends Relation
+case class LtEq() extends Relation
+case class GtEq() extends Relation
