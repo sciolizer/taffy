@@ -1,8 +1,7 @@
 package taffy.examples
 
 import taffy._
-import examples.Addend
-import examples.Equation
+import domains.{Addend, Equation, BoundedSum}
 import scala.collection.mutable
 import scala.{collection, Some}
 import scala.collection
@@ -13,10 +12,8 @@ import scala.collection
  * Date: 1/29/13
  * Time: 4:08 PM
  */
-case class Addend(coefficient: Int, variable: Int)
-case class Equation(addends: List[Addend], sum: Int)
 class BooleanExactCover extends Domain[Equation, BVars, Boolean] {
-  // todo: this is a special case of IntExactCover, so just delegate
+  // todo: this is a special case of BoundedSum, so just delegate
   // to that implementation
 //  override def learn(firstUniqueImplicationPoint: BooleanExactCover#VarId, constraints: List[(BooleanExactCover#VarId, BooleanExactCover#MixedConstraint)]): List[(Equation, List[BooleanExactCover#MixedConstraint])] = List.empty
 
@@ -46,7 +43,7 @@ class BooleanExactCover extends Domain[Equation, BVars, Boolean] {
         if (vals.candidates.size == 0) {
           throw new RuntimeException("invalid state: variable was already in a contradictory state")
         } else if (vals.candidates.size == 1) {
-          if (vals.candidates.head == coefficient > 0) {
+          if (vals.candidates.head == (coefficient > 0)) {
             // positive and var is set, or negative and var is not set.
             // lower is thus not as low as it could have been if this var had not been set
             lower += math.abs(coefficient)
@@ -218,103 +215,6 @@ object TestSubtraction {
   }
 }         */
 
-class IntExactCover(minimum: Int, maximum: Int) extends Domain[Equation, Set[Int], Int] {
-  if (minimum < 0) throw new IllegalArgumentException("Negative minimums is not currently supported: " + minimum)
-  if (minimum > maximum) throw new IllegalArgumentException("maximum " + maximum + "must be greater than minimum " + minimum)
-
-
-  override def learn(constraints: List[(VarId, Option[MixedConstraint])]): List[(Equation, List[MixedConstraint])] = {
-    val vars = constraints.map(_._1).toSet
-    val cs = (for ((_, Some(Right(eq))) <- constraints) yield { eq }).toSet.toArray
-    println("to learn: " + cs.toList)
-    var ret: mutable.Map[Equation, List[MixedConstraint]] = mutable.Map.empty
-    def toMap(eq: Equation): Map[VarId, Int] = eq.addends.map(x => (x.variable, x.coefficient)).toMap
-    for (i <- 0 until cs.size - 1) {
-      val eq1: Equation = cs(i)
-      val eq1map = toMap(eq1)
-      for (j <- i + 1 until cs.size) {
-        val eq2: Equation = cs(j)
-        val eq2map = toMap(eq2)
-        for (v <- vars) {
-          if (eq1map.contains(v) && eq2map.contains(v)) {
-            val eq1coefficient = eq1map(v)
-            val eq2coefficient = eq2map(v)
-            var learnedSum: mutable.Map[VarId, Int] = mutable.Map.empty.withDefaultValue(0)
-            def include(eq: Map[VarId, Int], multiplier: Int) {
-              for ((vid, coef) <- eq) {
-//                learnedSum(vid) += coef * multiplier // black magic
-                learnedSum(vid) = learnedSum(vid) + coef * multiplier
-              }
-            }
-            include(eq1map, -eq2coefficient)
-            include(eq2map, eq1coefficient)
-            val addends = (for ((vid, coeff) <- learnedSum; if coeff != 0) yield { Addend(coeff, vid) }).toList
-            ret(Equation(addends, eq1.sum * -eq2coefficient + eq2.sum * eq1coefficient)) = List(Right(eq1), Right(eq2))
-          }
-        }
-      }
-    }
-    println("learned: " + ret)
-    ret.toList
-  }
-
-  def revise(rw: ReadWrite[Equation, Set[Int], Int], c: Equation): Boolean = {
-    val (positives, negatives) = c.addends.partition(_.coefficient > 0)
-    var upper = positives.map(_.coefficient * maximum).sum
-    var lower = negatives.map(_.coefficient * maximum).sum
-    val settable = mutable.Map[VarId, Set[Int]]()
-    var writing = 0 // 1 means maximize, -1 means minimize
-    def outOfBounds(): Boolean = {
-      if ((c.sum > upper) || (c.sum < lower)) return true
-      if (c.sum == upper) {
-        writing = 1 // maximize sum on unset variables
-      } else if (c.sum == lower) {
-        writing = -1 // minimize sum on unset variables
-      }
-      false
-    }
-    for (Addend(coefficient, vid) <- c.addends) {
-      if (outOfBounds()) return false
-      if (coefficient == 0) {
-        throw new RuntimeException("invalid equation: zero coefficient")
-      } else {
-        val vals = rw.readVar(vid)
-        if (vals.isEmpty) {
-          throw new RuntimeException("invalid state: variable was already in a contradictory state")
-        } else if (vals.size == 1) {
-          val value = vals.head * coefficient
-          val min = coefficient * (if (coefficient < 0) maximum else minimum)
-          val max = coefficient * (if (coefficient > 0) maximum else minimum)
-          lower += (value - min)
-          upper -= (max - value)
-        } else {
-          settable += ((vid, vals))
-        }
-      }
-    }
-    if (outOfBounds()) {
-      false
-    } else if (writing == 0) {
-      true
-    } else {
-      for (Addend(coefficient, vid) <- c.addends) {
-        settable.get(vid) match {
-          case None =>
-          case Some(vals) =>
-            if (writing == -1) {
-              rw.setVar(vid, if (coefficient < 0) vals.max else vals.min)
-            } else if (writing == 1) {
-              rw.setVar(vid, if (coefficient > 0) vals.max else vals.min)
-            }
-        }
-      }
-      true
-    }
-  }
-
-  def coverage(c: Equation): collection.Set[IntExactCover#VarId] = c.addends.map(_.variable).toSet
-}
-
 object ThreeIntEquations {
   def main(args: Array[String]) {
     /*
@@ -331,7 +231,7 @@ object ThreeIntEquations {
         Equation(List(Addend(1, 0), Addend(1, 3), Addend(1, 4)), 5),
         Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2), Addend(1, 3), Addend(1, 4)), 5)),
       (0 to 5).toSet)
-    val solver = new Solver[Equation, Set[Int], Int](new IntExactCover(0, 5), problem, new SetRanger())
+    val solver = new Solver[Equation, Set[Int], Int](new BoundedSum(0, 5), problem, new SetRanger())
     solver.solve() match {
       case None => println("No solution found")
       case Some(reader) =>

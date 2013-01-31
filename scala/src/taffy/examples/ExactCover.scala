@@ -36,8 +36,8 @@ class ExactCover[Constraint, Satisfier](
   exact: Set[Constraint],
   bounded: Set[Constraint],
   satisfiers: Constraint => Set[Satisfier])
-  extends Domain[Equation, Set[Boolean], Boolean] {
-
+  // extends Domain[Equation, Set[Boolean], Boolean] {
+{
   val satisfiersOf: Map[Constraint, Set[Satisfier]] = (exact ++ bounded).map(c => ((c, satisfiers(c)))).toMap
   val constraintsOf: Map[Satisfier, Set[Constraint]] = invert(satisfiersOf)
   var i = -1
@@ -55,7 +55,7 @@ class ExactCover[Constraint, Satisfier](
     }
     ret
   }
-
+           /*
   def revise(rw: ReadWrite[Constraint, Set[Boolean], Boolean], c: Constraint): Boolean = {
     // todo: small optimization: if constraint is bounded, and the first n-1 are possibly false,
     // then we can skip reading the last variable
@@ -99,7 +99,7 @@ class ExactCover[Constraint, Satisfier](
         var ret = Set.empty
 
     }
-  }
+  } */
 }
 
 object MatrixExactCover {
