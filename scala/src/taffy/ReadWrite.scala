@@ -9,23 +9,11 @@ import collection.mutable
  * Date: 1/28/13
  * Time: 9:32 AM
  */
-
-class ReadWrite[Constraint, Variables, Variable](graph: ImplicationGraph[Constraint, Variables, Variable],
-                                     constraint: Either[NoGood[Variables], Constraint],
-                                     reads: mutable.Set[Int], // var ids, for installing watchers
-                                     writes: mutable.Set[Int], // var ids, for potentially removing vars from unassigned
-                                     ranger: Ranger[Variables, Variable]) {
+trait ReadWrite[Variables, Variable] {
   type VarId = Int
-  type AssignmentId = Int
-  private val assignmentReads: mutable.Set[AssignmentId] = mutable.Set()
-
-  // todo: do safety check with the coverage function
-  def readVar(v : VarId) : Variables = {
-    reads += v
-    val aid = graph.mostRecentAssignment(v)
-    assignmentReads += aid
-    graph.values(aid)
-  }
+  protected def ranger: Ranger[Variables, Variable]
+  protected def replace(v: VarId, replacer: Variables => Variables)
+  def readVar(v: VarId): Variables
 
   /**
    * Similar to calling readVar and verifying that the returned set is a singleton
@@ -65,8 +53,45 @@ class ReadWrite[Constraint, Variables, Variable](graph: ImplicationGraph[Constra
   def shrinkVar(v : VarId, value : Variable) {
     replace(v, ranger.subtraction(_, ranger.toSingleton(value)))
   }
+}
 
-  private def replace(v: VarId, replacer: Variables => Variables) {
+class ReadWriteMock[Variables, Variable](initial: Map[Int, Variables], r: Ranger[Variables, Variable]) extends ReadWrite[Variables, Variable]{
+  val overlay: mutable.Map[VarId, Variables] = mutable.Map.empty
+  def changes = overlay
+
+  protected def ranger: Ranger[Variables, Variable] = r
+
+  def readVar(v: VarId): Variables = {
+    overlay.get(v) match {
+      case None => initial(v)
+      case Some(x) => x
+    }
+  }
+
+  protected def replace(v: VarId, replacer: (Variables) => Variables) {
+    overlay(v) = replacer(readVar(v))
+  }
+}
+
+class ReadWriteGraph[Constraint, Variables, Variable](graph: ImplicationGraph[Constraint, Variables, Variable],
+                                     constraint: Either[NoGood[Variables], Constraint],
+                                     reads: mutable.Set[Int], // var ids, for installing watchers
+                                     writes: mutable.Set[Int], // var ids, for potentially removing vars from unassigned
+                                     r: Ranger[Variables, Variable]) extends ReadWrite[Variables, Variable] {
+  type AssignmentId = Int
+  private val assignmentReads: mutable.Set[AssignmentId] = mutable.Set()
+
+  protected def ranger: Ranger[Variables, Variable] = r
+
+  // todo: do safety check with the coverage function
+  def readVar(v : VarId) : Variables = {
+    reads += v
+    val aid = graph.mostRecentAssignment(v)
+    assignmentReads += aid
+    graph.values(aid)
+  }
+
+  protected def replace(v: VarId, replacer: Variables => Variables) {
     val original = graph.readVar(v)
     val replacement = replacer(original)
     if (!ranger.isEmpty(ranger.subtraction(original, replacement))) {

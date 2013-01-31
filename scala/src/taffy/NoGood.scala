@@ -9,21 +9,21 @@ package taffy
 class NoGood[Variables](forbidden: Map[Int, Variables]) {
   def coverage(): collection.Set[Int] = forbidden.keySet
 
-  def revise[Constraint, Variable](rw: ReadWrite[Constraint, Variables, Variable], ranger: Ranger[Variables, Variable]): Boolean = {
+  def revise[Constraint, Variable](rw: ReadWrite[Variables, Variable], ranger: Ranger[Variables, Variable]): Boolean = {
     getUnit(rw, ranger) match {
       case Left(b) => b
       case Right((vid, diff)) => rw.intersectVar(vid, diff); true
     }
   }
 
-  def isUnit[Constraint, Variable](rw: ReadWrite[Constraint, Variables, Variable], ranger: Ranger[Variables, Variable]): Boolean = {
+  def isUnit[Constraint, Variable](rw: ReadWrite[Variables, Variable], ranger: Ranger[Variables, Variable]): Boolean = {
     getUnit(rw, ranger) match {
       case Left(_) => false
       case Right(_) => true
     }
   }
 
-  private def getUnit[Constraint, Variable](rw: ReadWrite[Constraint, Variables, Variable], ranger: Ranger[Variables, Variable]): Either[Boolean, (Int, Variables)] = {
+  private def getUnit[Constraint, Variable](rw: ReadWrite[Variables, Variable], ranger: Ranger[Variables, Variable]): Either[Boolean, (Int, Variables)] = {
     var accepts: Option[(Int, Variables)] = None
     for ((vid, values1) <- forbidden) {
       val values2: Variables = rw.readVar(vid)

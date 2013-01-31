@@ -19,7 +19,7 @@ trait Domain[Constraint, Variables, Variable] {
    */
   def learn(constraints : List[(VarId, Option[MixedConstraint])]) : List[(Constraint /* new constraint */,List[MixedConstraint] /* generated from */)] = List.empty
 
-  def revise(rw : ReadWrite[Constraint, Variables, Variable], c: Constraint) : Boolean
+  def revise(rw : ReadWrite[Variables, Variable], c: Constraint) : Boolean
 
   def coverage(c : Constraint) : collection.Set[VarId]
 }

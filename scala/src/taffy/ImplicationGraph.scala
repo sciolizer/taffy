@@ -146,7 +146,7 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
 //    constraints = constraints :+ ((lastVar, lastConstraint))
     // this new constraint will be unit in the variable that is about to be tried next. I think.
     val nogood: NoGood[Variables] = new NoGood[Variables](nogoods)
-    if (!nogood.isUnit[Constraint, Variable](new ReadWrite(this, null.asInstanceOf[MixedConstraint], mutable.Set(), mutable.Set(), ranger), ranger)) {
+    if (!nogood.isUnit[Constraint, Variable](new ReadWriteGraph(this, null.asInstanceOf[MixedConstraint], mutable.Set(), mutable.Set(), ranger), ranger)) {
       throw new RuntimeException("generated nogood is not unit: " + nogood)
     }
     while (out_btlevel < decisionLevel) {

@@ -49,7 +49,7 @@ class BoundedSum(minimum: Int, maximum: Int) extends Domain[Equation, Set[Int], 
     ret.toList
   }          */
 
-  def revise(rw: ReadWrite[Equation, Set[Int], Int], e: Equation): Boolean = {
+  def revise(rw: ReadWrite[Set[Int], Int], e: Equation): Boolean = {
     val (positives, negatives) = e.addends.partition(_.coefficient > 0)
     var upper = positives.map(_.coefficient * maximum).sum
     var lower = negatives.map(_.coefficient * maximum).sum

@@ -13,7 +13,7 @@ class Disjunction[Booleans] extends Domain[List[Literal], Booleans, Boolean] {
 
   // Learn function does not need to be implemented, because nogood generation already covers it.
 
-  def revise(rw: ReadWrite[List[Literal], Booleans, Boolean], c: List[Literal]) : Boolean = {
+  def revise(rw: ReadWrite[Booleans, Boolean], c: List[Literal]) : Boolean = {
     var accepts: Option[(Int, Boolean)] = None
     for (Literal(expected, varId) <- c) {
       rw.contains(varId, expected) match {

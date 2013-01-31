@@ -56,7 +56,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
         unrevised -= constraint
         val reads = mutable.Set[VarId]()
         val writes = mutable.Set[VarId]()
-        val rw = new ReadWrite[Constraint, Variables, Variable](graph, constraint, reads, writes, ranger)
+        val rw = new ReadWriteGraph[Constraint, Variables, Variable](graph, constraint, reads, writes, ranger)
         val constraintUnsatisfiable = !revise(rw, constraint)
         var emptyVar = false
         for (vid <- writes) {
@@ -120,7 +120,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
     Some(new Read(graph, ranger))
   }
 
-  private def revise(rw: ReadWrite[Constraint, Variables, Variable], constraint: MixedConstraint) : Boolean = {
+  private def revise(rw: ReadWriteGraph[Constraint, Variables, Variable], constraint: MixedConstraint) : Boolean = {
     constraint match {
       case Left(nogood) => nogood.revise(rw, ranger)
       case Right(c) => domain.revise(rw, c)
