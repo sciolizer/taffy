@@ -87,16 +87,16 @@ class BoundedSum(minimum: Int, maximum: Int) extends Domain[Equation, Set[Int], 
           lower += (value - min)
           upper -= (max - value)
         } else {
-          settable += ((vid, vals)) // actually, if any values are missing at all, we can constrain them here
+          settable += ((vid, vals)) // todo: actually, lower and upper can still be modified in this case. Just need to look at vals.max and vals.min
         }
       }
     }
     if (outOfBounds()) {
       false
     } else if (writing == 0) {
-//      if (settable.size == 1) {
-//        rw.setVar(settable.keys.head, e.sum - lower)
-//      }
+      if (settable.size == 1) {
+        rw.setVar(settable.keys.head, e.sum - lower)
+      }
       true
     } else {
       for (Addend(coefficient, vid) <- e.addends) {
@@ -126,28 +126,29 @@ case class GtEq() extends Relation
 
 object TestBoundedSum {
   def main(args: Array[String]) {
-    // Before: DL(0) 0:0=Set(0, 1, 2) 1:1=Set(0, 1, 2) 2:2=Set(0, 1, 2) 3:3=Set(0, 1, 2) 4:4=Set(0, 1, 2) DL(1) 5:0=Set(0) 6:2=Set(1, 2) DL(2) 7:2=Set(1) DL(3) 8:1=Set(0) 9:0=Set()
-//    val rw = new ReadWriteMock[Set[Int], Int](Map(0 -> Set(0), 1 -> Set(0, 1, 2), 2 -> Set(1)), new SetRanger())
-//    val bs = new BoundedSum(0, 2)
-//    println(bs.revise(rw, Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2)), Eq(), 2)))
-//    println(rw.changes)
+    {
+      val rw = new ReadWriteMock[Set[Int], Int](Map(0 -> Set(0), 1 -> Set(0, 1, 2), 2 -> Set(1)), new SetRanger())
+      val bs = new BoundedSum(0, 2)
+      assert(bs.revise(rw, Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2)), Eq(), 2)))
+      val expected: Map[Int, Set[Int]] = Map[Int, Set[Int]](1 -> Set[Int](1))
+      assert(rw.changes.equals(expected))
+    }
 
-    /* a: 0
-b: 2
-c: 1
-d: 2
-e: 0 */
-//    val rw = new ReadWriteMock[Set[Int], Int](Map(0 -> Set(0), 1 -> Set(2), 2 -> Set(1), 3 -> Set(2), 4 -> Set(0)), new SetRanger())
-//    val bs = new BoundedSum(0, 2)
-//    println(bs.revise(rw, Equation(List(Addend(1, 0), Addend(1, 3), Addend(1, 4)), Eq(), 2)))
-//    println(rw.changes)
-    // so... this constraint is being forgotten about, some how
+    {
+      val rw = new ReadWriteMock[Set[Int], Int](Map(0 -> Set(0), 1 -> Set(2), 2 -> Set(1), 3 -> Set(2), 4 -> Set(0)), new SetRanger())
+      val bs = new BoundedSum(0, 2)
+      assert(bs.revise(rw, Equation(List(Addend(1, 0), Addend(1, 3), Addend(1, 4)), Eq(), 2)))
+      assert(rw.changes.isEmpty)
+    }
 
-    // Right(Equation(List(Addend(1,0), Addend(1,3), Addend(1,4)),Eq(),3))
-    val rw = new ReadWriteMock[Set[Int], Int](Map(0 -> Set(0), 3 -> Set(0, 1, 2), 4 -> Set(0)), new SetRanger())
-    val bs = new BoundedSum(0, 2)
-    println(bs.revise(rw, Equation(List(Addend(1, 0), Addend(1, 3), Addend(1, 4)), Eq(), 3)))
-    println(rw.changes)
+    {
+      val rw = new ReadWriteMock[Set[Int], Int](Map(0 -> Set(0), 3 -> Set(0, 1, 2), 4 -> Set(0)), new SetRanger())
+      val bs = new BoundedSum(0, 2)
+      assert(!bs.revise(rw, Equation(List(Addend(1, 0), Addend(1, 3), Addend(1, 4)), Eq(), 3)))
+      assert(rw.changes.isEmpty)
+    }
+
+    // definitely should write more of these
   }
 }
 
