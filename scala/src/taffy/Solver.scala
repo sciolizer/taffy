@@ -50,9 +50,10 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
     unrevised ++= problem.constraints.map(Right(_))
 
     while (!unrevised.isEmpty || !unassigned.isEmpty) {
-//      println("unrevised: " + unrevised)
+      println("unrevised: " + unrevised)
       if (!unrevised.isEmpty) {
         val constraint: MixedConstraint = unrevised.head
+        println("popped constraint: " + constraint)
         unrevised -= constraint
         val reads = mutable.Set[VarId]()
         val writes = mutable.Set[VarId]()
@@ -62,7 +63,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
         for (vid <- writes) {
           unrevised ++= watchers(vid) - constraint // todo: don't update unrevised when bj is going to become true
           val values = graph.readVar(vid)
-//          println("deduced " + vid + ": " + values)
+          println("deduced " + vid + ": " + values)
           if (ranger.isEmpty(values)) {
             emptyVar = true
           } else if (ranger.isSingleton(values)) {
@@ -85,8 +86,9 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
           while (origLevel == graph.decisionLevel) { // don't think this while loop is actually necessary, but it might be for when a constraint causes multiple variables to be in conflict at once
             val (nogood, rewound, constraints) = graph.fuip()
             //          if (graph.isEmpty) return None
-//            println("rewound: " + rewound)
+            println("rewound: " + rewound)
             unassigned ++= rewound
+            unrevised ++= rewound.flatMap(watchers(_))
             unrevised += Left(nogood)
             /*
             data.partition(_.isLeft) match {
@@ -110,11 +112,13 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
           // instead of a single value, so that no goods can be more useful? Of course, if any value is a valid
           // pick, then that would be a waste.
           val value = ranger.pick(values)
-//          println("picking " + vid + ": " + value)
+          println("picking " + vid + ": " + value)
           val newValue: Variables = ranger.toSingleton(value)
           graph.decide(vid, newValue)
+          unrevised ++= watchers(vid) // todo: is this necessary if values IS a singleton?
+        } else {
+          println("skipping singleton: " + vid + ": " + ranger.fromSingleton(values))
         }
-        unrevised ++= watchers(vid) // todo: is this necessary if values IS a singleton?
       }
     }
     Some(new Read(graph, ranger))

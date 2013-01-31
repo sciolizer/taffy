@@ -229,7 +229,7 @@ object ThreeIntEquations {
     No good generation is insufficient to do this; we need to implement the learn function
     on the domain.
      */
-    val cap = 2
+    val cap = 3
     val problem = new Problem[Equation, Set[Int], Int](5,
       Set(Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2)), Eq(), cap),
         Equation(List(Addend(1, 0), Addend(1, 3), Addend(1, 4)), Eq(), cap),
