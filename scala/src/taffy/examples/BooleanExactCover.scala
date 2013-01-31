@@ -11,13 +11,16 @@ import scala.collection
  * User: jball
  * Date: 1/29/13
  * Time: 4:08 PM
- */
+ */                         /*
 class BooleanExactCover extends Domain[Equation, BVars, Boolean] {
+  val boundedSum = new BoundedSum(0, 1)
   // todo: this is a special case of BoundedSum, so just delegate
   // to that implementation
 //  override def learn(firstUniqueImplicationPoint: BooleanExactCover#VarId, constraints: List[(BooleanExactCover#VarId, BooleanExactCover#MixedConstraint)]): List[(Equation, List[BooleanExactCover#MixedConstraint])] = List.empty
 
   def revise(rw: ReadWrite[Equation, BVars, Boolean], c: Equation): Boolean = {
+    val
+    boundedSum.revise(rw, c)
     // todo: this algorithm is still incomplete; in a + b + c + d + e = 1, when it is discovered that
     // c is true, the rest should be put to false. Currently only d and e are put to false.
     val (positives, negatives) = c.addends.partition(_.coefficient > 0)
@@ -76,12 +79,12 @@ class BooleanExactCover extends Domain[Equation, BVars, Boolean] {
   }
 
   def coverage(c: Equation): collection.Set[BooleanExactCover#VarId] = c.addends.map(_.variable).toSet
-}
+}                      */
 
-object BooleanExactCover {
+object BooleanExactCoverExample {
   def main(args: Array[String]) {
-    val problem = new Problem[Equation, BVars, Boolean](3, Set(Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2)), Eq(), 1)), new BVars())
-    val solver = new Solver(new BooleanExactCover(), problem, new BVarRanger())
+    val problem = new Problem[Equation, Set[Int], Int](3, Set(Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2)), Eq(), 1)), Set(0, 1))
+    val solver = new Solver[Equation, Set[Int], Int](new BoundedSum(0, 1), problem, new SetRanger())
     solver.solve() match {
       case None => println("No solution found")
       case Some(reader) =>
@@ -102,12 +105,12 @@ object ThreeBooleanEquations {
     Solver should quickly identify that b = 1 and all others are zero.
     Resolution of equations should quickly identify b as a special case.
      */
-    val problem = new Problem[Equation, BVars, Boolean](5,
+    val problem = new Problem[Equation, Set[Int], Int](5,
       Set(Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2)), Eq(), 1),
           Equation(List(Addend(1, 3), Addend(1, 1), Addend(1, 4)), Eq(), 1),
           Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2), Addend(1, 3), Addend(1, 4)), Eq(), 1)),
-      new BVars())
-    val solver = new Solver(new BooleanExactCover(), problem, new BVarRanger())
+      Set(0, 1))
+    val solver = new Solver[Equation, Set[Int], Int](new BoundedSum(0, 1), problem, new SetRanger())
     solver.solve() match {
       case None => println("No solution found")
       case Some(reader) =>
