@@ -1,7 +1,14 @@
 package taffy.domains
 
 import scala.collection.mutable
-import taffy.{SetRanger, ReadWriteMock, ReadWrite, Domain}
+import taffy._
+import domains.Addend
+import domains.Eq
+import domains.Equation
+import domains.GtEq
+import domains.LtEq
+import scala.Some
+import scala.Right
 
 /**
  * Created with IntelliJ IDEA.
@@ -129,6 +136,7 @@ case class LtEq() extends Relation
 case class GtEq() extends Relation
 
 object TestBoundedSum {
+  type MixedConstraint = Either[NoGood[Set[Int]], Equation]
   def main(args: Array[String]) {
     {
       val rw = new ReadWriteMock[Set[Int], Int](Map(0 -> Set(0), 1 -> Set(0, 1, 2), 2 -> Set(1)), new SetRanger())
@@ -157,6 +165,67 @@ object TestBoundedSum {
       val bs = new BoundedSum(0, 3)
       assert(bs.revise(rw, Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2)), Eq(), 4)))
       assert(rw.changes.equals(Map(1 -> Set(2), 2 -> Set(2))))
+    }
+
+    {
+      val rw = new ReadWriteMock[Set[Int], Int](Map(0 -> Set(0), 1 -> Set(0, 1, 2, 3), 2 -> Set(0, 1, 2, 3)), new SetRanger())
+      val bs = new BoundedSum(0, 3)
+      assert(bs.revise(rw, Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2)), Eq(), 4)))
+      assert(rw.changes.equals(Map(1 -> Set(1, 2, 3), 2 -> Set(1, 2, 3))))
+    }
+
+    def assertResolution(eq1: Equation, eq2: Equation, expected: Equation) {
+      val bs = new BoundedSum(0, 3)
+      val input: List[(Int, Option[MixedConstraint])] = List((0, Some(Right(eq1))), (0, Some(Right(eq2))))
+      val learned:  List[(Equation,List[MixedConstraint])] = bs.learn(input)
+      println("learned: " + learned)
+      val expect: List[(Equation,List[MixedConstraint])] = List((expected, input.map(_._2.get)))
+      assert(learned.equals(expect))
+    }
+
+    assertResolution(
+      Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2)), Eq(), 4),
+      Equation(List(Addend(1, 0), Addend(1, 3), Addend(1, 4)), Eq(), 7),
+      Equation(List(Addend(1, 1), Addend(1, 2), Addend(-1, 3), Addend(-1, 4)), Eq(), -3)
+    )
+
+    def assertRelations(rel1: Relation, rel2: Relation, expected: Relation) {
+      assertResolution(
+        Equation(List(Addend(2, 0), Addend(3, 1)), rel1, 11),
+        Equation(List(Addend(-5, 0), Addend(7, 1)), rel2, 13),
+        Equation(List(Addend(19, 1)), expected, 81)
+      )
+    }
+
+    assertRelations(Eq(), Eq(), Eq())
+    assertRelations(LtEq(), LtEq(), LtEq())
+    assertRelations(GtEq(), GtEq(), GtEq())
+    assertRelations(LtEq(), Eq(), LtEq())
+    assertRelations(GtEq(), Eq(), GtEq())
+    assertRelations(Eq(), LtEq(), LtEq())
+    assertRelations(Eq(), GtEq(), GtEq())
+
+    {
+      val bs = new BoundedSum(0, 3)
+      val eq1 = Equation(List(Addend(1, 0), Addend(1, 1)), LtEq(), 7)
+      val eq2 = Equation(List(Addend(1, 0), Addend(2, 1)), GtEq(), 11)
+      val input: List[(Int, Option[MixedConstraint])] = List((0, Some(Right(eq1))), (0, Some(Right(eq2))))
+      val learned:  List[(Equation,List[MixedConstraint])] = bs.learn(input)
+      println("learned: " + learned)
+      val expected = Equation(List(Addend(-1, 1)), LtEq(), -4)
+      val expect: List[(Equation,List[MixedConstraint])] = List((expected, input.map(_._2.get)))
+      assert(learned.equals(expect))
+    }
+
+    {
+      val bs = new BoundedSum(0, 3)
+      val eq1 = Equation(List(Addend(1, 0), Addend(1, 1)), LtEq(), 7)
+      val eq2 = Equation(List(Addend(1, 0), Addend(2, 1)), LtEq(), 11)
+      val input: List[(Int, Option[MixedConstraint])] = List((0, Some(Right(eq1))), (0, Some(Right(eq2))))
+      val learned:  List[(Equation,List[MixedConstraint])] = bs.learn(input)
+      println("learned: " + learned)
+      val expect: List[(Equation,List[MixedConstraint])] = List() // perhaps we COULD infer something here, but I'm not quite ready to open that can of worms
+      assert(learned.equals(expect))
     }
 
     // definitely should write more of these
