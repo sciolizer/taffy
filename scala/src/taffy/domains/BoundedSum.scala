@@ -108,9 +108,9 @@ class BoundedSum(minimum: Int, maximum: Int /*, ordering: WellOrdered */) extend
           case None =>
           case Some(vals) =>
             if (writing == -1) {
-              rw.setVar(vid, if (coefficient < 0) maximum else minimum)
+              rw.setVar(vid, if (coefficient < 0) vals.max else vals.min)
             } else if (writing == 1) {
-              rw.setVar(vid, if (coefficient > 0) maximum else minimum)
+              rw.setVar(vid, if (coefficient > 0) vals.max else vals.min)
             }
         }
       }
@@ -156,7 +156,7 @@ object TestBoundedSum {
       val rw = new ReadWriteMock[Set[Int], Int](Map(0 -> Set(0), 1 -> Set(0, 1, 2), 2 -> Set(0, 1, 2)), new SetRanger())
       val bs = new BoundedSum(0, 3)
       assert(bs.revise(rw, Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2)), Eq(), 4)))
-      assert(rw.changes.equals(Map(1 -> 2, 2 -> 2)))
+      assert(rw.changes.equals(Map(1 -> Set(2), 2 -> Set(2))))
     }
 
     // definitely should write more of these
