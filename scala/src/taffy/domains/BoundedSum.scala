@@ -148,6 +148,13 @@ object TestBoundedSum {
       assert(rw.changes.isEmpty)
     }
 
+    {
+      val rw = new ReadWriteMock[Set[Int], Int](Map(0 -> Set(0), 1 -> Set(0, 1, 2), 2 -> Set(0, 1, 2)), new SetRanger())
+      val bs = new BoundedSum(0, 3)
+      assert(bs.revise(rw, Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2)), Eq(), 4)))
+      assert(rw.changes.equals(Map(1 -> 2, 2 -> 2)))
+    }
+
     // definitely should write more of these
   }
 }
