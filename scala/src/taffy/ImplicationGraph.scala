@@ -143,7 +143,7 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
       counter -= 1
     } while (counter > 0)
     nogoods = nogoods + ((lastVar, lastReason))
-//    constraints = constraints :+ ((lastVar, lastConstraint))
+    constraints = constraints :+ ((lastVar, lastConstraint))
     // this new constraint will be unit in the variable that is about to be tried next. I think.
     val nogood: NoGood[Variables] = new NoGood[Variables](nogoods)
     if (!nogood.isUnit[Constraint, Variable](new ReadWriteGraph(this, null.asInstanceOf[MixedConstraint], mutable.Set(), mutable.Set(), ranger), ranger)) {

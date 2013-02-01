@@ -54,10 +54,11 @@ class BoundedSum(minimum: Int, maximum: Int /*, ordering: WellOrdered */) extend
               include(eq1map, -eq2coefficient)
               include(eq2map, eq1coefficient)
               val addends = (for ((vid, coeff) <- learnedSum; if coeff != 0) yield { Addend(coeff, vid) }).toList
-              val rel: Relation = eq1.relation match {
-                case Eq() => if (sameSigns) eq2.relation.opposite else eq2.relation
-                case LtEq() => if (eq2coefficient < 0) LtEq() else GtEq()
-                case GtEq() => if (eq2coefficient < 0) GtEq() else LtEq()
+              val newEq2Relation = eq2.relation.multiply(eq1coefficient)
+              val rel: Relation = eq1.relation.multiply(-eq2coefficient) match {
+                case Eq() => newEq2Relation
+                case LtEq() => if (newEq2Relation != GtEq()) LtEq() else throw new RuntimeException("mismatched inequalities")
+                case GtEq() => if (newEq2Relation != LtEq()) GtEq() else throw new RuntimeException("mismatched inequalities")
               }
               ret(Equation(addends, rel, eq1.sum * -eq2coefficient + eq2.sum * eq1coefficient)) = List(Right(eq1), Right(eq2))
             } // else resolution is much more complicated, and not something I'm ready to jump into
@@ -131,13 +132,11 @@ class BoundedSum(minimum: Int, maximum: Int /*, ordering: WellOrdered */) extend
 
 case class Addend(coefficient: Int, variable: Int)
 case class Equation(addends: List[Addend], relation: Relation, sum: Int)
-abstract class Relation {
-  def opposite: Relation
-}
+abstract class Relation { def multiply(coefficient: Int): Relation }
 
-case class Eq() extends Relation { def opposite = Eq() }
-case class LtEq() extends Relation { def opposite = GtEq() }
-case class GtEq() extends Relation { def opposite = LtEq() }
+case class Eq() extends Relation { def multiply(_coefficient: Int) = Eq() }
+case class LtEq() extends Relation { def multiply(coefficient: Int) = if (coefficient < 0) GtEq() else LtEq() }
+case class GtEq() extends Relation { def multiply(coefficient: Int) = if (coefficient < 0) LtEq() else GtEq() }
 
 object TestBoundedSum {
   type MixedConstraint = Either[NoGood[Set[Int]], Equation]
@@ -183,7 +182,7 @@ object TestBoundedSum {
       val bs = new BoundedSum(0, 3)
       val input: List[(Int, Option[MixedConstraint])] = List((0, Some(Right(eq1))), (0, Some(Right(eq2))))
       val learned:  List[(Equation,List[MixedConstraint])] = bs.learn(input)
-//      println("learned: " + learned)
+      println("learned: " + learned)
       val expect: List[(Equation,List[MixedConstraint])] = List((expected, input.map(_._2.get)))
       assert(learned.equals(expect))
     }
@@ -192,6 +191,12 @@ object TestBoundedSum {
       Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2)), Eq(), 4),
       Equation(List(Addend(1, 0), Addend(1, 3), Addend(1, 4)), Eq(), 7),
       Equation(List(Addend(1, 3), Addend(-1, 1), Addend(1, 4), Addend(-1, 2)), Eq(), 3)
+    )
+
+    assertResolution(
+      Equation(List(Addend(1, 3), Addend(-1, 0)), Eq(), 0),
+      Equation(List(Addend(1, 4), Addend(1, 0)), LtEq(), 1),
+      Equation(List(Addend(-1, 3), Addend(-1, 4)), GtEq(), -1)
     )
 
     def assertRelations(rel1: Relation, rel2: Relation, expected: Relation) {

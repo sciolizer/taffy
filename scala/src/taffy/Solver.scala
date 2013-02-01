@@ -197,10 +197,12 @@ class SolverSanityCheck[Constraint, Variables, Variable]( domain: Domain[Constra
   }
   
   override def sanityCheckNoGood(nogood: NoGood[Variables], constraints: List[(VarId, Option[MixedConstraint])]) {
+    println("constraints with vars: " + constraints)
     sanityCheck(nogood.coverage(), Left(nogood), (for ((_, mc) <- constraints; if mc.isDefined) yield { mc.get }))
   }
 
   override def sanityCheckLearned(learned: List[(Constraint, List[MixedConstraint])], constraints: List[(VarId, Option[MixedConstraint])]) {
+    println("constraints with vars: " + constraints)
     // todo: pay attention to the constraints argument 
     for ((nc, from) <- learned) {
       sanityCheck(domain.coverage(nc).toSet, Right(nc), from)
@@ -209,29 +211,53 @@ class SolverSanityCheck[Constraint, Variables, Variable]( domain: Domain[Constra
   
   private def sanityCheck(vars: Set[VarId], learned: MixedConstraint, constraints: List[MixedConstraint]) {
     // todo: figure out how to work without only the vars that are TRULY relevant. This code is (unsurprisingly) really really slow.
-    for (mp <- everything(vars)) {
-      val rw = new ReadWriteMock[Variables, Variable](mp, ranger)
-      val accepts = revise(rw, learned) // todo: figure out what to do with rw.changed
-      if (!accepts) {
-        breakable {
-          for (constraint <- constraints) {
-            val thisOne = revise(rw, learned)
-            if (!thisOne) break()
-          }
-          throw new RuntimeException("Learned constraint overconstrains! " + learned + " rejects " + mp + " but " + constraints + " all accept.")
-        }
+    for (rejectedAssignment <- dynamicRevise(learned, Map.empty, goal = false)) {
+      acceptingAssignments(rejectedAssignment, constraints).find(x => true) match {
+        case None =>
+        case Some(a) => if (a.size <= 20) throw new RuntimeException("Learned constraint overconstrains! " + learned + " rejects " + a + " of size " + a.size + " but " + constraints + " all accept.")
       }
     }
   }
 
-  private def everything(vars: Set[VarId]): Iterator[Map[VarId, Variables]] = {
-    if (vars.isEmpty) {
-      Iterator.single(Map.empty)
-    } else {
-      val v: VarId = vars.head
-      val newVars: Set[VarId] = vars - v
-      val rest: Iterator[Map[VarId, Variables]] = everything(newVars)
-      rest.flatMap(mp => valueSet.iterator.map[Map[VarId, Variables]](x => mp + (v -> x)))
+  private def dynamicRevise(c: MixedConstraint, assignment: Map[VarId, Variables], goal: Boolean): Iterator[Map[VarId, Variables]] = {
+//    println("dynamicRevise: " + assignment)
+    try {
+      val rw = new ReadWritePartial[Variables, Variable](assignment, ranger)
+      val ret = revise(rw, c)
+      if (ret == goal) Iterator.single(assignment) else Iterator.empty
+    }
+    catch {
+      case UndefinedVariable(v: VarId) =>
+        valueSet.iterator.flatMap(value => dynamicRevise(c, assignment + (v -> value), goal))
+    }
+  }
+
+  // todo: unify this with dynamicRevise
+  private def acceptingAssignments(initial: Map[VarId, Variables], cs: List[MixedConstraint]): Iterator[Map[VarId, Variables]] = {
+//    println("acceptingAssignments: " + initial)
+    if (cs.isEmpty) return Iterator.single(initial)
+    if (initial.size > 20) return Iterator.empty
+    try {
+      val rw = new ReadWritePartial[Variables, Variable](initial, ranger)
+      if (revise(rw, cs.head)) acceptingAssignments(initial, cs.tail) else Iterator.empty
+    } catch {
+      case UndefinedVariable(v: VarId) =>
+        valueSet.iterator.flatMap(value => acceptingAssignments(initial + (v -> value), cs))
     }
   }
 }
+
+class ReadWritePartial[Variables, Variable](initial: Map[Int, Variables], r: Ranger[Variables, Variable])
+  extends ReadWriteMock[Variables, Variable](initial: Map[Int, Variables], r: Ranger[Variables, Variable]) {
+  override def readVar(v: ReadWritePartial[Variables, Variable]#VarId): Variables = {
+    overlay.get(v) match {
+      case None => initial.get(v) match {
+        case None => throw new UndefinedVariable(v)
+        case Some(x) => x
+      }
+      case Some(x) => x
+    }
+  }
+}
+
+case class UndefinedVariable[Variable](v: Int) extends RuntimeException
