@@ -42,6 +42,10 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
 
   // private var decisionLevel: DecisionLevel = 0
 
+  def sanityCheckNoGood(nogood: NoGood[Variables], constraints: List[(VarId, Option[MixedConstraint])]) { }
+
+  def sanityCheckLearned(learned: List[(Constraint, List[MixedConstraint])], constraints: List[(VarId, Option[MixedConstraint])]) { }
+
   def solve() : Option[Read[Constraint, Variables, Variable]] = {
     val initialDecisionLevel: DecisionLevel = -1
     val initialCause: Option[(Constraint, Map[VarId, Variables])] = None
@@ -87,6 +91,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
           if (origLevel == 0) return None
           while (origLevel == graph.decisionLevel) { // don't think this while loop is actually necessary, but it might be for when a constraint causes multiple variables to be in conflict at once
             val (nogood, rewound, constraints) = graph.fuip()
+            sanityCheckNoGood(nogood, constraints)
             backtracks += 1
             println("backtracks: " + backtracks)
             //          if (graph.isEmpty) return None
@@ -100,7 +105,9 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
   case (strings, _) => Left(for(Left(s) <- strings.view) yield s)
 }
              */
-            unrevised ++= domain.learn(constraints).map(x => Right(x._1)) // todo: incorporate _2 after isomorphisms have been implemented
+            val learned: List[(Constraint, List[MixedConstraint])] = domain.learn(constraints)
+            unrevised ++= learned.map(x => Right(x._1)) // todo: incorporate _2 after isomorphisms have been implemented
+            sanityCheckLearned(learned, constraints)
           }
         } else {
           for (varId <- reads) {
@@ -128,7 +135,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
     Some(new Read(graph, ranger))
   }
 
-  private def revise(rw: ReadWriteGraph[Constraint, Variables, Variable], constraint: MixedConstraint) : Boolean = {
+  protected def revise(rw: ReadWrite[Variables, Variable], constraint: MixedConstraint) : Boolean = {
     constraint match {
       case Left(nogood) => nogood.revise(rw, ranger)
       case Right(c) => domain.revise(rw, c)
@@ -170,4 +177,56 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
     }
   }
 */
+}
+
+class SolverSanityCheck[Constraint, Variables, Variable]( domain: Domain[Constraint, Variables, Variable],
+                                                          problem: Problem[Constraint, Variables, Variable],
+                                                          ranger: Ranger[Variables, Variable]) extends Solver[Constraint, Variables, Variable](domain, problem, ranger) {
+  
+  lazy val valueSet: Set[Variables] = {
+    var ret: Set[Variables] = Set.empty
+    var remaining = problem.candidateValues
+    while (!ranger.isEmpty(remaining)) {
+      val picked = ranger.pick(remaining)
+      val singleton: Variables = ranger.toSingleton(picked)
+      ret = ret + singleton
+      remaining = ranger.subtraction(remaining, singleton)
+    }
+    ret
+  }
+  
+  override def sanityCheckNoGood(nogood: NoGood[Variables], constraints: List[(VarId, Option[MixedConstraint])]) {
+    sanityCheck(nogood.coverage(), Left(nogood), (for ((_, mc) <- constraints; if mc.isDefined) yield { mc.get }))
+  }
+
+  override def sanityCheckLearned(learned: List[(Constraint, List[MixedConstraint])], constraints: List[(VarId, Option[MixedConstraint])]) {
+    // todo: pay attention to the constraints argument 
+    for ((nc, from) <- learned) {
+      sanityCheck(domain.coverage(nc).toSet, Right(nc), from)
+    }
+  }
+  
+  private def sanityCheck(vars: Set[VarId], learned: MixedConstraint, constraints: List[MixedConstraint]) {
+    for (mp <- everything(vars)) {
+      val rw = new ReadWriteMock[Variables, Variable](mp, ranger)
+      val accepts = revise(rw, learned) // todo: figure out what to do with rw.changed
+      if (!accepts) {
+        for (constraint <- constraints) {
+          val thisOne = revise(rw, learned)
+          if (!thisOne) throw new RuntimeException("Learned constraint overconstrains! " + learned + " rejects " + mp + " but " + constraint + " accepts.")
+        }
+      }
+    }
+  }
+
+  private def everything(vars: Set[VarId]): Iterator[Map[VarId, Variables]] = {
+    if (vars.isEmpty) {
+      Iterator.single(Map.empty)
+    } else {
+      val v: VarId = vars.head
+      val newVars: Set[VarId] = vars - v
+      val rest: Iterator[Map[VarId, Variables]] = everything(newVars)
+      rest.flatMap(mp => valueSet.iterator.map[Map[VarId, Variables]](x => mp + (v -> x)))
+    }
+  }
 }
