@@ -85,7 +85,7 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
    * Adapted from the minisat paper.
    */
   def fuip(): (NoGood[Variables], Set[VarId] /* rewound variables */, List[(VarId, Option[MixedConstraint])]) = {
-//    println("Before: " + toString())
+    println("Before: " + toString())
 
     var rewound: Set[VarId] = Set.empty
 
@@ -118,8 +118,10 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
           val vid: ImplicationGraph.this.type#VarId = assignment._1
           if (vidLevel == startingDecisionLevel) { // todo: is this allowed to decrease over time?
             counter += 1
+            println("at starting decision level: " + assignment._4 + " implies var " + vid + " is " + assignment._2)
             constraints = constraints :+ ((vid, assignment._4)) // todo: what is the performance of :+ and +: ? (also used below)
           } else if (vidLevel > 0) {
+            println("beyond starting decision level: " + assignment._4 + " implies var " + vid + " is " + assignment._2)
             nogoods = nogoods + ((vid, assignment._2))
 //            constraints = constraints :+ ((vid, assignment._4)) // todo: what is the performance of :+ and +: ? (also used below)
 //            println("nogoods: " + nogoods)
@@ -144,6 +146,7 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
     } while (counter > 0)
     nogoods = nogoods + ((lastVar, lastReason))
     constraints = constraints :+ ((lastVar, lastConstraint))
+    println("counter back to zero: " + lastConstraint + " implies var " + lastVar + " is " + lastReason)
     // this new constraint will be unit in the variable that is about to be tried next. I think.
     val nogood: NoGood[Variables] = new NoGood[Variables](nogoods)
     if (!nogood.isUnit[Constraint, Variable](new ReadWriteGraph(this, null.asInstanceOf[MixedConstraint], mutable.Set(), mutable.Set(), ranger), ranger)) {

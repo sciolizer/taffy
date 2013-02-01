@@ -197,12 +197,14 @@ class SolverSanityCheck[Constraint, Variables, Variable]( domain: Domain[Constra
   }
   
   override def sanityCheckNoGood(nogood: NoGood[Variables], constraints: List[(VarId, Option[MixedConstraint])]) {
-    println("constraints with vars: " + constraints)
+    println("constraints with vars no good: " + constraints)
+    println("resolution vars: " + constraints.map(_._1))
     sanityCheck(nogood.coverage(), Left(nogood), (for ((_, mc) <- constraints; if mc.isDefined) yield { mc.get }))
   }
 
   override def sanityCheckLearned(learned: List[(Constraint, List[MixedConstraint])], constraints: List[(VarId, Option[MixedConstraint])]) {
-    println("constraints with vars: " + constraints)
+    println("constraints with vars learned: " + constraints)
+    println("resolution vars: " + constraints.map(_._1))
     // todo: pay attention to the constraints argument 
     for ((nc, from) <- learned) {
       sanityCheck(domain.coverage(nc).toSet, Right(nc), from)
@@ -214,7 +216,7 @@ class SolverSanityCheck[Constraint, Variables, Variable]( domain: Domain[Constra
     for (rejectedAssignment <- dynamicRevise(learned, Map.empty, goal = false)) {
       acceptingAssignments(rejectedAssignment, constraints).find(x => true) match {
         case None =>
-        case Some(a) => if (a.size <= 20) throw new RuntimeException("Learned constraint overconstrains! " + learned + " rejects " + a + " of size " + a.size + " but " + constraints + " all accept.")
+        case Some(a) => /* if (a.size <= 20) */ throw new RuntimeException("Learned constraint overconstrains! " + learned + " rejects " + a + " of size " + a.size + " but " + constraints + " all accept.")
       }
     }
   }
@@ -236,7 +238,7 @@ class SolverSanityCheck[Constraint, Variables, Variable]( domain: Domain[Constra
   private def acceptingAssignments(initial: Map[VarId, Variables], cs: List[MixedConstraint]): Iterator[Map[VarId, Variables]] = {
 //    println("acceptingAssignments: " + initial)
     if (cs.isEmpty) return Iterator.single(initial)
-    if (initial.size > 20) return Iterator.empty
+//    if (initial.size > 20) return Iterator.empty
     try {
       val rw = new ReadWritePartial[Variables, Variable](initial, ranger)
       if (revise(rw, cs.head)) acceptingAssignments(initial, cs.tail) else Iterator.empty
