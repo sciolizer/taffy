@@ -21,7 +21,6 @@ class BoundedSum(minimum: Int, maximum: Int /*, ordering: WellOrdered */) extend
   if (minimum < 0) throw new IllegalArgumentException("Negative minimums is not currently supported: " + minimum)
   if (minimum > maximum) throw new IllegalArgumentException("maximum " + maximum + "must be greater than minimum " + minimum)
 
-                                  /*
   override def learn(constraints: List[(VarId, Option[MixedConstraint])]): List[(Equation, List[MixedConstraint])] = {
     val vars = constraints.map(_._1).toSet
     val cs = (for ((_, Some(Right(eq))) <- constraints) yield { eq }).toSet.toArray
@@ -38,24 +37,37 @@ class BoundedSum(minimum: Int, maximum: Int /*, ordering: WellOrdered */) extend
           if (eq1map.contains(v) && eq2map.contains(v)) {
             val eq1coefficient = eq1map(v)
             val eq2coefficient = eq2map(v)
-            var learnedSum: mutable.Map[VarId, Int] = mutable.Map.empty.withDefaultValue(0)
-            def include(eq: Map[VarId, Int], multiplier: Int) {
-              for ((vid, coef) <- eq) {
-//                learnedSum(vid) += coef * multiplier // black magic
-                learnedSum(vid) = learnedSum(vid) + coef * multiplier
-              }
+            val sameDirection: Boolean = eq1.relation match {
+              case Eq() => true
+              case LtEq() => !eq2.relation.equals(GtEq())
+              case GtEq() => !eq2.relation.equals(LtEq())
             }
-            include(eq1map, -eq2coefficient)
-            include(eq2map, eq1coefficient)
-            val addends = (for ((vid, coeff) <- learnedSum; if coeff != 0) yield { Addend(coeff, vid) }).toList
-            ret(Equation(addends, eq1.sum * -eq2coefficient + eq2.sum * eq1coefficient)) = List(Right(eq1), Right(eq2))
+            val sameSigns: Boolean = math.signum(eq1coefficient) == math.signum(eq2coefficient)
+            if (sameSigns != sameDirection) {
+              var learnedSum: mutable.Map[VarId, Int] = mutable.Map.empty.withDefaultValue(0)
+              def include(eq: Map[VarId, Int], multiplier: Int) {
+                for ((vid, coef) <- eq) {
+                  //                learnedSum(vid) += coef * multiplier // black magic
+                  learnedSum(vid) = learnedSum(vid) + coef * multiplier
+                }
+              }
+              include(eq1map, -eq2coefficient)
+              include(eq2map, eq1coefficient)
+              val addends = (for ((vid, coeff) <- learnedSum; if coeff != 0) yield { Addend(coeff, vid) }).toList
+              val rel: Relation = eq1.relation match {
+                case Eq() => if (sameSigns) eq2.relation.opposite else eq1.relation
+                case LtEq() => LtEq()
+                case GtEq() => GtEq()
+              }
+              ret(Equation(addends, rel, eq1.sum * -eq2coefficient + eq2.sum * eq1coefficient)) = List(Right(eq1), Right(eq2))
+            } // else resolution is much more complicated, and not something I'm ready to jump into
           }
         }
       }
     }
     println("learned: " + ret)
     ret.toList
-  }          */
+  }
 
   def revise(rw: ReadWrite[Set[Int], Int], e: Equation): Boolean = {
     val (positives, negatives) = e.addends.partition(_.coefficient > 0)
@@ -119,10 +131,13 @@ class BoundedSum(minimum: Int, maximum: Int /*, ordering: WellOrdered */) extend
 
 case class Addend(coefficient: Int, variable: Int)
 case class Equation(addends: List[Addend], relation: Relation, sum: Int)
-abstract class Relation
-case class Eq() extends Relation
-case class LtEq() extends Relation
-case class GtEq() extends Relation
+abstract class Relation {
+  def opposite: Relation
+}
+
+case class Eq() extends Relation { def opposite = Eq() }
+case class LtEq() extends Relation { def opposite = GtEq() }
+case class GtEq() extends Relation { def opposite = LtEq() }
 
 object TestBoundedSum {
   type MixedConstraint = Either[NoGood[Set[Int]], Equation]
