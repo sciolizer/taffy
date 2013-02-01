@@ -103,7 +103,7 @@ object NQueens {
   case class BackwardSlash(sum: Int) extends Constraint
 
   def main(args: Array[String]) {
-    val size = 7
+    val size = 8
 //    val satisfiers: Set[(Int, Int)] = (for (i <- 0 until size; j <- 0 until size) yield { ((i, j)) }).toSet
     val exact: Set[Constraint] = ((0 until size).map(Row(_)) ++ (0 until size).map(Column(_))).toSet
     val bounded: Set[Constraint] = ((-(size-1) until size).map(ForwardSlash(_)) ++ (-(size-1) until size).map(BackwardSlash(_))).toSet
@@ -116,7 +116,9 @@ object NQueens {
       }
     }
     ExactCover.solve[Constraint, (Int, Int)](exact, bounded, getSatisfiers) match {
-      case None => println("no solution")
+      case None =>
+        println("no solution")
+        if (size != 2 && size != 3) throw new RuntimeException("This is probably a bug!")
       case Some(spots) =>
         for (i <- 0 until size) {
           for (j <- 0 until size) {

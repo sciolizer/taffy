@@ -38,6 +38,8 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
 
   private val emptyVals: Variables = ranger.subtraction(problem.candidateValues, problem.candidateValues)
 
+  var backtracks = 0
+
   // private var decisionLevel: DecisionLevel = 0
 
   def solve() : Option[Read[Constraint, Variables, Variable]] = {
@@ -85,6 +87,8 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
           if (origLevel == 0) return None
           while (origLevel == graph.decisionLevel) { // don't think this while loop is actually necessary, but it might be for when a constraint causes multiple variables to be in conflict at once
             val (nogood, rewound, constraints) = graph.fuip()
+            backtracks += 1
+            println("backtracks: " + backtracks)
             //          if (graph.isEmpty) return None
 //            println("rewound: " + rewound)
             unassigned ++= rewound
