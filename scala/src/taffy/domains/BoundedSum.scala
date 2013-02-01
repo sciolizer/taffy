@@ -24,7 +24,7 @@ class BoundedSum(minimum: Int, maximum: Int /*, ordering: WellOrdered */) extend
   override def learn(constraints: List[(VarId, Option[MixedConstraint])]): List[(Equation, List[MixedConstraint])] = {
     val vars = constraints.map(_._1).toSet
     val cs = (for ((_, Some(Right(eq))) <- constraints) yield { eq }).toSet.toArray
-    println("to learn: " + cs.toList)
+//    println("to learn: " + cs.toList)
     var ret: mutable.Map[Equation, List[MixedConstraint]] = mutable.Map.empty
     def toMap(eq: Equation): Map[VarId, Int] = eq.addends.map(x => (x.variable, x.coefficient)).toMap
     for (i <- 0 until cs.size - 1) {
@@ -65,7 +65,7 @@ class BoundedSum(minimum: Int, maximum: Int /*, ordering: WellOrdered */) extend
         }
       }
     }
-    println("learned: " + ret)
+//    println("learned: " + ret)
     ret.toList
   }
 

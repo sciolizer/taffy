@@ -85,7 +85,7 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
    * Adapted from the minisat paper.
    */
   def fuip(): (NoGood[Variables], Set[VarId] /* rewound variables */, List[(VarId, Option[MixedConstraint])]) = {
-    println("Before: " + toString())
+//    println("Before: " + toString())
 
     var rewound: Set[VarId] = Set.empty
 
@@ -153,9 +153,9 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
       rewound = rewound + assignments.last._1
       undoOne()
     }
-    println("nogood: " + nogood)
+//    println("nogood: " + nogood)
 //    println("outer rewound: " + rewound)
-    println("after: " + toString())
+//    println("after: " + toString())
 //    println("btlevel_out: " + out_btlevel)
     Tuple3(nogood, rewound, constraints)
 
