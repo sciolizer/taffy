@@ -91,9 +91,9 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
           if (origLevel == 0) return None
           while (origLevel == graph.decisionLevel) { // don't think this while loop is actually necessary, but it might be for when a constraint causes multiple variables to be in conflict at once
             val (nogood, rewound, constraints) = graph.fuip()
-            sanityCheckNoGood(nogood, constraints)
             backtracks += 1
-            println("backtracks: " + backtracks)
+            println("backtracks: " + backtracks + ", " + nogood + ", causes: " + constraints)
+            sanityCheckNoGood(nogood, constraints)
             //          if (graph.isEmpty) return None
 //            println("rewound: " + rewound)
             unassigned ++= rewound
@@ -106,6 +106,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
 }
              */
             val learned: List[(Constraint, List[MixedConstraint])] = domain.learn(constraints)
+            println("learned: " + learned)
             unrevised ++= learned.map(x => Right(x._1)) // todo: incorporate _2 after isomorphisms have been implemented
             sanityCheckLearned(learned, constraints)
           }

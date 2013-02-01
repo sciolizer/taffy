@@ -84,7 +84,7 @@ class BooleanExactCover extends Domain[Equation, BVars, Boolean] {
 object BooleanExactCoverExample {
   def main(args: Array[String]) {
     val problem = new Problem[Equation, Set[Int], Int](3, Set(Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2)), Eq(), 1)), Set(0, 1))
-    val solver = new Solver[Equation, Set[Int], Int](new BoundedSum(0, 1), problem, new SetRanger())
+    val solver = new SolverSanityCheck[Equation, Set[Int], Int](new BoundedSum(0, 1), problem, new SetRanger())
     solver.solve() match {
       case None => println("No solution found")
       case Some(reader) =>
@@ -110,7 +110,7 @@ object ThreeBooleanEquations {
           Equation(List(Addend(1, 3), Addend(1, 1), Addend(1, 4)), Eq(), 1),
           Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2), Addend(1, 3), Addend(1, 4)), Eq(), 1)),
       Set(0, 1))
-    val solver = new Solver[Equation, Set[Int], Int](new BoundedSum(0, 1), problem, new SetRanger())
+    val solver = new SolverSanityCheck[Equation, Set[Int], Int](new BoundedSum(0, 1), problem, new SetRanger())
     solver.solve() match {
       case None => println("No solution found")
       case Some(reader) =>
@@ -235,7 +235,7 @@ object ThreeIntEquations {
         Equation(List(Addend(1, 0), Addend(1, 3), Addend(1, 4)), Eq(), cap),
         Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2), Addend(1, 3), Addend(1, 4)), Eq(), cap)),
       (0 to cap).toSet)
-    val solver = new Solver[Equation, Set[Int], Int](new BoundedSum(0, cap), problem, new SetRanger())
+    val solver = new SolverSanityCheck[Equation, Set[Int], Int](new BoundedSum(0, cap), problem, new SetRanger())
     solver.solve() match {
       case None => println("No solution found")
       case Some(reader) =>

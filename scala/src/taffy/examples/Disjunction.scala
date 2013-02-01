@@ -72,7 +72,7 @@ object SatExample {
     val clause1 = List(Literal(false, a), Literal(true, b))
     val clause2 = List(Literal(true, a), Literal(true, c))
     val problem = new Problem[List[Literal], BVars, Boolean](3, Set(clause0, clause1, clause2), new BVars(Set(true, false)))
-    val s = new Solver[List[Literal], BVars, Boolean](new Disjunction[BVars](), problem, new BVarRanger())
+    val s = new SolverSanityCheck[List[Literal], BVars, Boolean](new Disjunction[BVars](), problem, new BVarRanger())
     val answer = s.solve()
     answer match {
       case None => println("No solution found")
