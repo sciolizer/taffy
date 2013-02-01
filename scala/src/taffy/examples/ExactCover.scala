@@ -73,68 +73,24 @@ object ExactCover {
     }
   }
 }
-                    /*
-  // extends Domain[Equation, Set[Boolean], Boolean] {
-{
-//  val vars: Map[(Constraint, Satisfier), Int] = (for (c <- satisfiersOf.keys; s <- constraintsOf.keys) yield { ((c, s), nextId() )}).toMap
 
-  val
-
-  private def invert[A,B](in: Map[A, Set[B]]): Map[B, Set[A]] = {
-    // really, a mutable map has got to be more efficient than this
-    var ret: Map[B, Set[A]] = Map.empty[B, Set[A]].withDefaultValue(Set.empty[A])
-    for ((k, vs) <- in) {
-      for (v <- vs) {
-        ret = ret.updated(v, ret(v) + k)
-      }
-    }
-    ret
-  }
-           /*
-  def revise(rw: ReadWrite[Constraint, Set[Boolean], Boolean], c: Constraint): Boolean = {
-    // todo: small optimization: if constraint is bounded, and the first n-1 are possibly false,
-    // then we can skip reading the last variable
-    val undecided: mutable.Set[VarId] = mutable.Set.empty
-    var trues = 0
-    for (satisfier <- satisfiersOf(c)) {
-      for (vid <- vars((c, satisfier))) {
-        rw.contains(vid, true) match {
-          case Rejects =>
-          case Is =>
-            trues += 1
-            if (trues > 1) return false
-          case Accepts =>
-            undecided += vid
-        }
-      }
-    }
-    if (trues == 1) {
-      for (vid <- undecided) {
-        rw.setVar(vid, false)
-      }
-      true
-    } else if (undecided.size == 0) {
-      bounded.contains(c)
-    } else {
-      if (undecided.size == 1 && exact.contains(c)) rw.setVar(undecided.head, true)
-      true
-    }
-  }
-
-  def coverage(c: Constraint): collection.Set[VarId] = {
-    satisfiersOf(c).map(x => vars((c, x)))
-  }
-
-  def solve(): Option[Set[Satisfier]] = {
-    val problem = new Problem(vars.size, satisfiersOf.keys, Set(true, false))
-    val solver = new Solver(this, problem, new SetRanger())
-    solver.solve() match {
-      case None => None
-      case Some(reader) =>
-        var ret = Set.empty
-
-    }
-  } */     */
 object MatrixExactCover {
+  def main(args: Array[String]) {
+    // From the wikipedia page on exact cover:
+    val a = Set(1, 4, 7)
+    val b = Set(1, 4)
+    val c = Set(4, 5, 7)
+    val d = Set(3, 5, 6)
+    val e = Set(2, 3, 6, 7)
+    val f = Set(2, 7)
 
+    // expected solution: b, d, f
+    def getSatisfiers(constraint: Int): Set[Set[Int]] = {
+      for (satisfier <- Set(a, b, c, d, e, f); if satisfier.contains(constraint)) yield satisfier
+    }
+    ExactCover.solve[Int, Set[Int]]((1 to 7).toSet, Set.empty, getSatisfiers) match {
+      case None => throw new RuntimeException("could not find a solution")
+      case Some(x) => if (!Set(b, d, f).equals(x)) throw new RuntimeException("unexpected solution: " + x)
+    }
+  }
 }
