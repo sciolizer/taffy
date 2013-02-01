@@ -207,13 +207,17 @@ class SolverSanityCheck[Constraint, Variables, Variable]( domain: Domain[Constra
   }
   
   private def sanityCheck(vars: Set[VarId], learned: MixedConstraint, constraints: List[MixedConstraint]) {
+    // todo: figure out how to work without only the vars that are TRULY relevant. This code is (unsurprisingly) really really slow.
     for (mp <- everything(vars)) {
       val rw = new ReadWriteMock[Variables, Variable](mp, ranger)
       val accepts = revise(rw, learned) // todo: figure out what to do with rw.changed
       if (!accepts) {
-        for (constraint <- constraints) {
-          val thisOne = revise(rw, learned)
-          if (!thisOne) throw new RuntimeException("Learned constraint overconstrains! " + learned + " rejects " + mp + " but " + constraint + " accepts.")
+        breakable {
+          for (constraint <- constraints) {
+            val thisOne = revise(rw, learned)
+            if (!thisOne) break()
+          }
+          throw new RuntimeException("Learned constraint overconstrains! " + learned + " rejects " + mp + " but " + constraints + " all accept.")
         }
       }
     }

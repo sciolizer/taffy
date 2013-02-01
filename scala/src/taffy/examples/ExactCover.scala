@@ -61,7 +61,7 @@ object ExactCover {
     }
     val domain = new BoundedSum(0, 1)
     val problem = new Problem[Equation, Set[Int], Int](vars.size, equations, Set(0, 1))
-    val solver = new Solver[Equation, Set[Int], Int](domain, problem, new SetRanger())
+    val solver = new SolverSanityCheck[Equation, Set[Int], Int](domain, problem, new SetRanger()) // todo: revert to ordinary solver (without sanity check)
     solver.solve() match {
       case None => None
       case Some(reader) =>
@@ -107,8 +107,8 @@ object NQueens {
 //    val satisfiers: Set[(Int, Int)] = (for (i <- 0 until size; j <- 0 until size) yield { ((i, j)) }).toSet
     val exact: Set[Constraint] = ((0 until size).map(Row(_)) ++ (0 until size).map(Column(_))).toSet
     val bounded: Set[Constraint] = ((-(size-1) until size).map(ForwardSlash(_)) ++ (-(size-1) until size).map(BackwardSlash(_))).toSet
-    def getSatisfiers(c: Constraint): Set[(Int, Int)] = {
-      c match {
+    def getSatisfiers(cs: Constraint): Set[(Int, Int)] = {
+      cs match {
         case Row(r) => (for (c <- 0 until size) yield { ((r, c)) }).toSet
         case Column(c) => (for (r <- 0 until size) yield { ((r, c)) }).toSet
         case BackwardSlash(s) => (for (r <- 0 until size; if s - r >= 0 && s - r < size) yield { ((r, s - r)) }).toSet // incomplete
