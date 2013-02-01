@@ -43,7 +43,7 @@ class BoundedSum(minimum: Int, maximum: Int /*, ordering: WellOrdered */) extend
               case GtEq() => !eq2.relation.equals(LtEq())
             }
             val sameSigns: Boolean = math.signum(eq1coefficient) == math.signum(eq2coefficient)
-            if (sameSigns != sameDirection) {
+            if (sameSigns != sameDirection || (eq1.relation.equals(Eq()) && eq2.relation.equals(Eq()))) {
               var learnedSum: mutable.Map[VarId, Int] = mutable.Map.empty.withDefaultValue(0)
               def include(eq: Map[VarId, Int], multiplier: Int) {
                 for ((vid, coef) <- eq) {
@@ -55,9 +55,9 @@ class BoundedSum(minimum: Int, maximum: Int /*, ordering: WellOrdered */) extend
               include(eq2map, eq1coefficient)
               val addends = (for ((vid, coeff) <- learnedSum; if coeff != 0) yield { Addend(coeff, vid) }).toList
               val rel: Relation = eq1.relation match {
-                case Eq() => if (sameSigns) eq2.relation.opposite else eq1.relation
-                case LtEq() => LtEq()
-                case GtEq() => GtEq()
+                case Eq() => if (sameSigns) eq2.relation.opposite else eq2.relation
+                case LtEq() => if (eq2coefficient < 0) LtEq() else GtEq()
+                case GtEq() => if (eq2coefficient < 0) GtEq() else LtEq()
               }
               ret(Equation(addends, rel, eq1.sum * -eq2coefficient + eq2.sum * eq1coefficient)) = List(Right(eq1), Right(eq2))
             } // else resolution is much more complicated, and not something I'm ready to jump into
@@ -183,7 +183,7 @@ object TestBoundedSum {
       val bs = new BoundedSum(0, 3)
       val input: List[(Int, Option[MixedConstraint])] = List((0, Some(Right(eq1))), (0, Some(Right(eq2))))
       val learned:  List[(Equation,List[MixedConstraint])] = bs.learn(input)
-      println("learned: " + learned)
+//      println("learned: " + learned)
       val expect: List[(Equation,List[MixedConstraint])] = List((expected, input.map(_._2.get)))
       assert(learned.equals(expect))
     }
@@ -191,14 +191,14 @@ object TestBoundedSum {
     assertResolution(
       Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2)), Eq(), 4),
       Equation(List(Addend(1, 0), Addend(1, 3), Addend(1, 4)), Eq(), 7),
-      Equation(List(Addend(1, 1), Addend(1, 2), Addend(-1, 3), Addend(-1, 4)), Eq(), -3)
+      Equation(List(Addend(1, 3), Addend(-1, 1), Addend(1, 4), Addend(-1, 2)), Eq(), 3)
     )
 
     def assertRelations(rel1: Relation, rel2: Relation, expected: Relation) {
       assertResolution(
         Equation(List(Addend(2, 0), Addend(3, 1)), rel1, 11),
         Equation(List(Addend(-5, 0), Addend(7, 1)), rel2, 13),
-        Equation(List(Addend(19, 1)), expected, 81)
+        Equation(List(Addend(29, 1)), expected, 81)
       )
     }
 
@@ -216,8 +216,8 @@ object TestBoundedSum {
       val eq2 = Equation(List(Addend(1, 0), Addend(2, 1)), GtEq(), 11)
       val input: List[(Int, Option[MixedConstraint])] = List((0, Some(Right(eq1))), (0, Some(Right(eq2))))
       val learned:  List[(Equation,List[MixedConstraint])] = bs.learn(input)
-      println("learned: " + learned)
-      val expected = Equation(List(Addend(-1, 1)), LtEq(), -4)
+//      println("learned: " + learned)
+      val expected = Equation(List(Addend(1, 1)), GtEq(), 4)
       val expect: List[(Equation,List[MixedConstraint])] = List((expected, input.map(_._2.get)))
       assert(learned.equals(expect))
     }
@@ -228,7 +228,7 @@ object TestBoundedSum {
       val eq2 = Equation(List(Addend(1, 0), Addend(2, 1)), LtEq(), 11)
       val input: List[(Int, Option[MixedConstraint])] = List((0, Some(Right(eq1))), (0, Some(Right(eq2))))
       val learned:  List[(Equation,List[MixedConstraint])] = bs.learn(input)
-      println("learned: " + learned)
+//      println("learned: " + learned)
       val expect: List[(Equation,List[MixedConstraint])] = List() // perhaps we COULD infer something here, but I'm not quite ready to open that can of worms
       assert(learned.equals(expect))
     }
