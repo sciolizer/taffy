@@ -94,3 +94,36 @@ object MatrixExactCover {
     }
   }
 }
+
+object NQueens {
+  abstract class Constraint
+  case class Row(row: Int) extends Constraint
+  case class Column(column: Int) extends Constraint
+  case class ForwardSlash(diff: Int) extends Constraint
+  case class BackwardSlash(sum: Int) extends Constraint
+
+  def main(args: Array[String]) {
+    val size = 7
+//    val satisfiers: Set[(Int, Int)] = (for (i <- 0 until size; j <- 0 until size) yield { ((i, j)) }).toSet
+    val exact: Set[Constraint] = ((0 until size).map(Row(_)) ++ (0 until size).map(Column(_))).toSet
+    val bounded: Set[Constraint] = ((-(size-1) until size).map(ForwardSlash(_)) ++ (-(size-1) until size).map(BackwardSlash(_))).toSet
+    def getSatisfiers(c: Constraint): Set[(Int, Int)] = {
+      c match {
+        case Row(r) => (for (c <- 0 until size) yield { ((r, c)) }).toSet
+        case Column(c) => (for (r <- 0 until size) yield { ((r, c)) }).toSet
+        case BackwardSlash(s) => (for (r <- 0 until size; if s - r >= 0 && s - r < size) yield { ((r, s - r)) }).toSet // incomplete
+        case ForwardSlash(d) => (for (r <- 0 until size; if r + d >= 0 && r + d < size) yield { ((r, r + d)) }).toSet
+      }
+    }
+    ExactCover.solve[Constraint, (Int, Int)](exact, bounded, getSatisfiers) match {
+      case None => println("no solution")
+      case Some(spots) =>
+        for (i <- 0 until size) {
+          for (j <- 0 until size) {
+            print(if (spots.contains((i, j))) "X" else ".")
+          }
+          println()
+        }
+    }
+  }
+}
