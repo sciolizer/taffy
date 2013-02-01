@@ -1,9 +1,15 @@
 package taffy.examples
 
 import taffy._
+import domains._
+import domains.Addend
+import domains.Eq
+import domains.Equation
+import domains.LtEq
 import scala.collection.mutable
 import taffy.ReadWrite.{Accepts, Is, Rejects}
-import scala.collection
+import scala.{None, collection}
+import collection.mutable.ArrayBuffer
 import taffy.ReadWrite.Accepts
 import taffy.ReadWrite.Is
 import taffy.ReadWrite.Rejects
@@ -32,18 +38,47 @@ in different directions.
 
 And if all else fails, don't worry about generating a new equation!
  */
-class ExactCover[Constraint, Satisfier](
-  exact: Set[Constraint],
-  bounded: Set[Constraint],
-  satisfiers: Constraint => Set[Satisfier])
+object ExactCover {
+  def solve[Constraint, Satisfier](exact: Set[Constraint],  bounded: Set[Constraint],  getSatisfiers: Constraint => Set[Satisfier]): Option[Set[Satisfier]] = {
+    val satisfiers: mutable.Set[Satisfier] = mutable.Set.empty
+    for (constraint <- (exact ++ bounded)) {
+      satisfiers ++= getSatisfiers(constraint)
+    }
+    val vars: mutable.Map[Satisfier, Int] = mutable.Map.empty
+    val satisfierIndex: ArrayBuffer[Satisfier] = new ArrayBuffer()
+    var i = 0
+    for (satisfier <- satisfiers) {
+      vars(satisfier) = i
+      satisfierIndex += satisfier
+      i += 1
+    }
+    var equations: Set[Equation] = Set.empty
+    for (constraint <- exact) {
+      equations = equations + Equation(getSatisfiers(constraint).toList.map(x => Addend(1, vars(x))), Eq(), 1)
+    }
+    for (constraint <- bounded) {
+      equations = equations + Equation(getSatisfiers(constraint).toList.map(x => Addend(1, vars(x))), LtEq(), 1)
+    }
+    val domain = new BoundedSum(0, 1)
+    val problem = new Problem[Equation, Set[Int], Int](vars.size, equations, Set(0, 1))
+    val solver = new Solver[Equation, Set[Int], Int](domain, problem, new SetRanger())
+    solver.solve() match {
+      case None => None
+      case Some(reader) =>
+        var ret: Set[Satisfier] = Set.empty
+        for (vid <- 0 until vars.size) {
+          if (reader.read(vid) == 1) ret = ret + satisfierIndex(vid)
+        }
+        Some(ret)
+    }
+  }
+}
+                    /*
   // extends Domain[Equation, Set[Boolean], Boolean] {
 {
-  val satisfiersOf: Map[Constraint, Set[Satisfier]] = (exact ++ bounded).map(c => ((c, satisfiers(c)))).toMap
-  val constraintsOf: Map[Satisfier, Set[Constraint]] = invert(satisfiersOf)
-  var i = -1
-  def nextId(): Int = { i += 1; i }
-  val vars: Map[Satisfier, Int] = (for (s <- constraintsOf.keys) yield { ((s, nextId()) )}).toMap
 //  val vars: Map[(Constraint, Satisfier), Int] = (for (c <- satisfiersOf.keys; s <- constraintsOf.keys) yield { ((c, s), nextId() )}).toMap
+
+  val
 
   private def invert[A,B](in: Map[A, Set[B]]): Map[B, Set[A]] = {
     // really, a mutable map has got to be more efficient than this
@@ -99,9 +134,7 @@ class ExactCover[Constraint, Satisfier](
         var ret = Set.empty
 
     }
-  } */
-}
-
+  } */     */
 object MatrixExactCover {
 
 }
