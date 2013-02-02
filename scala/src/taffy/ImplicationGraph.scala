@@ -1,6 +1,7 @@
 package taffy
 
 import collection.mutable.ArrayBuffer
+import domains.{Literal, Disjunction}
 import scala.collection.mutable
 import collection.immutable.Stack
 
@@ -281,3 +282,33 @@ case class Assignment[Constraint, Variables](
   variables: Variables,
   decisionLevel: Int,
   cause: Option[Either[NoGood[Variables], Constraint]])
+
+object TestImplicationGraph {
+  def main(args: Array[String]) {
+    // Example from page 4 of http://www.cs.tau.ac.il/~msagiv/courses/ATP/iccad2001_final.pdf
+    /*
+    6 | ~11 | ~12
+~11 | 13 | 16
+12 | -16 | 2
+~4 | 2 | -10
+-8 | 10 | -1
+10 | 3
+10 | 5
+17 | -1 | -3 | 5 | 18
+-3 | -19 | 18
+
+pick -6
+deduce -17 (6 | -17)
+pick -13
+deduce 8 (13 | 8)
+pick 4
+deduce 19 (-4 | 19)
+pick 11
+deduce -12, 16, -2, -10, 1, 3, -5, 18, -18
+
+     */
+    val im = new ImplicationGraph[Disjunction, Set[Boolean], Boolean](20, Set(true, false), new SetRanger())
+    im.decide(6, Set(false)) // 0
+    im.implies(17, Set(false), Set(0), List(Literal(true, 6), Literal(false, -17))) // 1
+  }
+}
