@@ -16,8 +16,8 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
   type DecisionLevel = Int
   type MixedConstraint = Either[NoGood[Variables], Constraint]
   private var dl = 0
-  private val assignments: ArrayBuffer[(VarId, Variables, DecisionLevel, Option[MixedConstraint])] = ArrayBuffer()
-  private val implications: mutable.Map[AssignmentId, Set[AssignmentId]] = mutable.Map() // entry does not exist for decision variables
+  private val assignments: ArrayBuffer[Assignment[Constraint, Variables]] = ArrayBuffer()
+  private val implications: mutable.Map[AssignmentId /* implication */, Set[AssignmentId] /* impliers */] = mutable.Map() // entry does not exist for decision variables
   private val varIndex: mutable.Map[VarId, Stack[AssignmentId]] = mutable.Map().withDefaultValue(Stack.empty)
 
   for (i <- 0 until numVariables) {
@@ -37,7 +37,7 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
 
   private def record(vid: VarId, values: Variables, constraint: Option[MixedConstraint]): Int = {
     val ret: AssignmentId = assignments.size
-    assignments += ((vid, values, dl, constraint))
+    assignments += Assignment(vid, values, dl, constraint)
     varIndex(vid) = varIndex(vid).push(ret)
     ret
   }
@@ -51,7 +51,7 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
   }
 
   def values(aid: AssignmentId): Variables = {
-    assignments(aid)._2
+    assignments(aid).variables
   }
 
   def readVar(vid: VarId): Variables = {
@@ -61,16 +61,71 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
   private def undoOne() {
     if (assignments.size <= numVariables) throw new RuntimeException("tried to undo past beginning")
     val i: Int = assignments.size - 1
-    val vid = assignments.remove(i)._1
+    val vid = assignments.remove(i).varId
     implications.remove(i)
     if (assignments.isEmpty) {
       dl = 0
     } else {
-      dl = assignments.last._3
+      dl = assignments.last.decisionLevel
     }
     varIndex(vid) = varIndex(vid).pop2._2
   }
 
+  // about the 3rd return value:
+  // the first list within the list is the vars that are implied by the first unique implication point, along
+  // with the constraints that implied them.
+  // the second list within the list (if it exists), is the next layer of implications, and so on until
+  // the final list within the list is a singleton containing the conflicting variable, and the constraint
+  // which led to its downfall
+  // previously I made the constraint be an Option, but that is wrong, since EVERYTHING on the conflict side
+  // of the cut must be an implied variable.
+  def fuip(): (NoGood[Variables], Set[VarId] /* rewound variables */, List[List[(VarId, MixedConstraint)]]) = {
+    var rewound: Set[VarId] = Set.empty
+    val originalDecisionLevel = decisionLevel
+
+    // back track until we find most recent conflicting variable
+    while (!ranger.isEmpty(assignments(assignments.size - 1).variables)) {
+      rewound = rewound + assignments(assignments.size - 1).varId
+      undoOne()
+    }
+
+    val last: Int = assignments.size - 1
+    var causes: List[List[(VarId, MixedConstraint)]] = List()
+    var frontier: Set[AssignmentId] = Set(last)
+    var reasons: Set[AssignmentId] = Set.empty
+    do {
+      val newCauses: List[(VarId, MixedConstraint)] = frontier.toList.map(x => (assignments(x).varId, assignments(x).cause.get))
+      val combined: List[List[(VarId, MixedConstraint)]] = newCauses +: causes
+      causes = combined
+      def impliers(of: AssignmentId): Set[AssignmentId] = implications.get(of) match {
+        case None => Set.empty
+        case Some(xs) => xs
+      }
+      frontier = frontier.flatMap(impliers)
+      var remove: Set[AssignmentId] = Set()
+      for (assignment <- frontier) {
+        if (assignments(assignment).decisionLevel < originalDecisionLevel) {
+          remove = remove + assignment
+        }
+      }
+      // erhg.. this is not right
+      // we want to track the causes of the frontier BEFORE they reach < originalDecisionLevel
+      reasons = reasons ++ remove
+      frontier = frontier -- remove
+    } while (frontier.size > 1)
+    if (frontier.size == 0) {
+      throw new RuntimeException("unexpected state. empty frontier. reasons: " + reasons + ", causes: " + causes)
+    }
+    val uip = frontier.head
+    val nogood = new NoGood[Variables]((reasons + uip).map(x => (assignments(x).varId, assignments(x).variables)).toMap)
+    while (assignments(assignments.size - 1).decisionLevel == originalDecisionLevel) {
+      rewound = rewound + assignments(assignments.size - 1).varId
+      undoOne()
+    }
+    (nogood, rewound, causes)
+  }
+}
+      /*
   /*
   Calculate reason: This method is given a literal p and an empty vector.
   The constraint is the _reason_ for p being true, that is, during propagation,
@@ -84,7 +139,7 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
   /**
    * Adapted from the minisat paper.
    */
-  def fuip(): (NoGood[Variables], Set[VarId] /* rewound variables */, List[(VarId, Option[MixedConstraint])]) = {
+  def fuipOld(): (NoGood[Variables], Set[VarId] /* rewound variables */, List[(VarId, Option[MixedConstraint])]) = {
     println("Before: " + toString())
 
     var rewound: Set[VarId] = Set.empty
@@ -219,4 +274,10 @@ out_learnt[0] = not p
     }
     sb.toString()
   }
-}
+}                             */
+
+case class Assignment[Constraint, Variables](
+  varId: Int,
+  variables: Variables,
+  decisionLevel: Int,
+  cause: Option[Either[NoGood[Variables], Constraint]])

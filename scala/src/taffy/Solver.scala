@@ -93,7 +93,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
             val (nogood, rewound, constraints) = graph.fuip()
             backtracks += 1
             println("backtracks: " + backtracks + ", " + nogood + ", causes: " + constraints)
-            sanityCheckNoGood(nogood, constraints)
+            sanityCheckNoGood(nogood, null) // constraints)
             //          if (graph.isEmpty) return None
 //            println("rewound: " + rewound)
             unassigned ++= rewound
@@ -105,10 +105,10 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
   case (strings, _) => Left(for(Left(s) <- strings.view) yield s)
 }
              */
-            val learned: List[(Constraint, List[MixedConstraint])] = domain.learn(constraints)
+            val learned: List[(Constraint, List[MixedConstraint])] = domain.learn(null) // constraints)
             println("learned: " + learned)
             unrevised ++= learned.map(x => Right(x._1)) // todo: incorporate _2 after isomorphisms have been implemented
-            sanityCheckLearned(learned, constraints)
+            sanityCheckLearned(learned, null) // constraints)
           }
         } else {
           for (varId <- reads) {
