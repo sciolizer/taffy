@@ -72,6 +72,7 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
     varIndex(vid) = varIndex(vid).pop2._2
   }
 
+  // Finds the first unique implication point (FUIP).
   // about the 3rd return value:
   // the first list within the list is the vars that are implied by the first unique implication point, along
   // with the constraints that implied them.
@@ -80,54 +81,67 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
   // which led to its downfall
   // previously I made the constraint be an Option, but that is wrong, since EVERYTHING on the conflict side
   // of the cut must be an implied variable.
-  def fuip(): (NoGood[Variables], Set[VarId] /* rewound variables */, List[List[(VarId, MixedConstraint)]]) = {
+  def fuip(): (NoGood[Variables], Set[VarId] /* rewound variables */, List[(VarId, MixedConstraint)]) = {
     var rewound: Set[VarId] = Set.empty
     val originalDecisionLevel = decisionLevel
 
-    // back track until we find most recent conflicting variable
+    // backtrack until we find most recent conflicting variable
     while (!ranger.isEmpty(assignments(assignments.size - 1).variables)) {
       rewound = rewound + assignments(assignments.size - 1).varId
       undoOne()
     }
 
-    var seen: mutable.Set[AssignmentId] = mutable.Set.empty
-    val last: Int = assignments.size - 1
-    var causes: List[List[(VarId, MixedConstraint)]] = List()
-    var frontier: Set[AssignmentId] = Set(last)
-    var reasons: Set[AssignmentId] = Set.empty // all variables on the reason side of the cut, excluding the uip
-    do { // todo: still need a seen set, so that elements previously in the frontier set don't show up there again
-      println(toString())
-      println("frontier: " + frontier)
-      val newCauses: List[(VarId, MixedConstraint)] = frontier.toList.map(x => (assignments(x).varId, assignments(x).cause.get))
-      println("newCauses: " + newCauses)
-      val combined: List[List[(VarId, MixedConstraint)]] = newCauses +: causes
-      causes = combined
-      def impliers(of: AssignmentId): Set[AssignmentId] = implications.get(of) match {
-        case None => Set.empty
-        case Some(xs) => xs
-      }
-      frontier = frontier.flatMap(impliers)
-      println("seen: " + seen)
-      frontier = frontier -- seen
-      println("superset of next frontier: " + frontier)
-      var remove: mutable.Set[AssignmentId] = mutable.Set.empty
-      for (assignment <- frontier) {
-        if (assignments(assignment).decisionLevel < originalDecisionLevel) {
-          remove += assignment
-        }
-      }
-      println("remove: " + remove)
-      reasons = reasons ++ remove
-      frontier = frontier -- remove
-      println("frontier before maybe exiting: " + frontier)
-      seen ++= frontier
-    } while (frontier.size > 1)
-    if (frontier.size == 0) {
-      throw new RuntimeException("unexpected state. empty frontier. reasons: " + reasons + ", causes: " + causes)
+    // The current decision variable + the minimum set of variables less than the current decision level that are
+    // sufficient to lead to the current conflict.
+    // The nogood will be the FUIP plus all reasons which are not ancestors of the uip.
+    val reasons: mutable.Set[AssignmentId] = mutable.Set.empty
+
+    // The implied variables at the current decision level that have at least one immediate parent
+    // which is the decision variable or at a lower decision level.
+    // The set of returned constraints will be from a subset of these: specifically, the ones which are not
+    // ancestors of the FUIP.
+    var firstImplications: Set[AssignmentId] = Set.empty
+
+    def isLower(ad: AssignmentId): Boolean = {
+      val a = assignments(ad)
+      a.decisionLevel < originalDecisionLevel || a.cause.isEmpty /* the decision variable */
     }
-    val uip = frontier.head
-    def forbidden(x: AssignmentId): Set[(VarId, Variables)] = if (x >= numVariables) Set((assignments(x).varId, assignments(x).variables)) else Set.empty
-    val nogood = new NoGood[Variables]((reasons + uip).flatMap(forbidden).toMap)
+
+    def parents(aid: AssignmentId): Set[AssignmentId] = {
+      if (isLower(aid)) {
+        reasons += aid
+        Set()
+      } else {
+        val candidates = implications(aid)
+        if (candidates.exists(a => isLower(a))) {
+          firstImplications = firstImplications + aid
+        }
+        candidates
+      }
+    }
+    def forbidden(x: AssignmentId): Set[(VarId, Variables)] =
+      if (x >= numVariables) Set((assignments(x).varId, assignments(x).variables)) else Set.empty
+
+    val pf = new PathFinder[AssignmentId](parents)
+    val conflictingAssignment: AssignmentId = assignments.size - 1
+    val ps: Set[AssignmentId] = parents(conflictingAssignment).filter(x => !isLower(x))
+    val firstUip = { /* if (ps.isEmpty) {
+      // Conflict came immediately after deciding a value, so the current decision variable is the FUIP.
+      var ret = assignments.size - 1
+      while (assignments(ret - 1).decisionLevel == originalDecisionLevel) ret -= 1
+      ret
+    } else { */
+      val ancestors: Set[Set[AssignmentId]] = ps.map(pf.ancestors(_))
+      // Despite the name, this variable will also contain the decision variable and variables at lower decision levels
+      val uips = ancestors.fold(pf.ancestors(conflictingAssignment))((x,y) => x.intersect(y))
+      val uip = uips.max
+      uip
+    }
+    val exclude = pf.ancestors(firstUip)
+    val nogood = new NoGood[Variables]((reasons -- exclude + firstUip).flatMap(forbidden).toMap)
+    val causesSet: Set[(AssignmentId, VarId, MixedConstraint)] = (firstImplications -- exclude - firstUip).map(a => ((a, assignments(a).varId, assignments(a).cause.get)))
+    val causes: List[(VarId, MixedConstraint)] = causesSet.toList.sortBy(_._1).map(x => (x._2, x._3))
+
     while (assignments(assignments.size - 1).decisionLevel == originalDecisionLevel) {
       rewound = rewound + assignments(assignments.size - 1).varId
       undoOne()
@@ -296,12 +310,14 @@ object TestImplicationGraph {
     // Example from page 4 of http://www.cs.tau.ac.il/~msagiv/courses/ATP/iccad2001_final.pdf
     val im = new ImplicationGraph[List[Literal], Set[Boolean], Boolean](20, Set(true, false), new SetRanger())
     def decide(literal: Int) { im.decide(math.abs(literal), Set(literal > 0)) }
-    def implies(literals: Int*) {
+    def implies(literals: Int*): Either[NoGood[Set[Boolean]], List[Literal]] = {
+      val ret: Right[NoGood[Set[Boolean]], List[Literal]] = Right[NoGood[Set[Boolean]], List[Literal]](literals.init.map(x => Literal(x > 0, math.abs(x))).toList)
       im.implies(
         math.abs(literals.last),
         Set(literals.last > 0),
         literals.init.map(x => im.mostRecentAssignment(math.abs(x))).toSet,
-        Right[NoGood[Set[Boolean]], List[Literal]](literals.init.map(x => Literal(x > 0, math.abs(x))).toList))
+        ret)
+      ret
     }
     decide(-6)
     implies(6, -17)
@@ -315,19 +331,24 @@ object TestImplicationGraph {
     implies(-11, 13, 16)
     implies(12, -16, -2)
     implies(-4, 2, -10)
-    implies(-8, 10, 1)
-    implies(10, 3)
-    implies(10, -5)
-    implies(17, -1, -3, 5, 18)
+    val implies1 = implies(-8, 10, 1)
+    val implies3 = implies(10, 3)
+    val impliesNot5 = implies(10, -5)
+    val implies18 = implies(17, -1, -3, 5, 18)
+    val impliesNot18 = Right[NoGood[Set[Boolean]], List[Literal]](List(Literal(false, 3), Literal(false, 19), Literal(false, 18)))
+    // Can't use implies for this last one, since we need to make the value empty instead of a singleton boolean
     im.implies(
       18, Set(),
       Set(im.mostRecentAssignment(3), im.mostRecentAssignment(19)),
-      Right[NoGood[Set[Boolean]], List[Literal]](List(Literal(false, 3), Literal(false, 19), Literal(false, 18))))
+      impliesNot18)
     val (nogood, rewound, tolearn) = im.fuip()
     assert(Set(18, 5, 3, 1, 10, 2, 16, 12, 11).equals(rewound))
     println("forbidden: " + nogood.forbidden)
-    assert(nogood.forbidden.equals(Map(17 -> Set(false), 8 -> Set(true), 10 -> Set(false) -> 19 -> Set(true))))
+    assert(nogood.forbidden.equals(Map(17 -> Set(false), 8 -> Set(true), 10 -> Set(false), 19 -> Set(true))))
     println(tolearn)
+    val expected = List((1, implies1), (3, implies3), (5, impliesNot5), (18, implies18), (18, impliesNot18))
+    println(expected)
+    assert(tolearn.equals(expected))
   }
 }
 
