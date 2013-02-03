@@ -21,9 +21,9 @@ class BoundedSum(minimum: Int, maximum: Int /*, ordering: WellOrdered */) extend
   if (minimum < 0) throw new IllegalArgumentException("Negative minimums is not currently supported: " + minimum)
   if (minimum > maximum) throw new IllegalArgumentException("maximum " + maximum + "must be greater than minimum " + minimum)
 
-  override def learn(constraints: List[(VarId, Option[MixedConstraint])]): List[(Equation, List[MixedConstraint])] = {
+  override def learn(constraints: List[(VarId, MixedConstraint)]): List[(Equation, List[MixedConstraint])] = {
     val vars = constraints.map(_._1).toSet
-    val cs = (for ((_, Some(Right(eq))) <- constraints) yield { eq }).toSet.toArray
+    val cs = (for ((_, Right(eq)) <- constraints) yield { eq }).toSet.toArray
 //    println("to learn: " + cs.toList)
     var ret: mutable.Map[Equation, List[MixedConstraint]] = mutable.Map.empty
     def toMap(eq: Equation): Map[VarId, Int] = eq.addends.map(x => (x.variable, x.coefficient)).toMap
@@ -180,10 +180,10 @@ object TestBoundedSum {
 
     def assertResolution(eq1: Equation, eq2: Equation, expected: Equation) {
       val bs = new BoundedSum(0, 3)
-      val input: List[(Int, Option[MixedConstraint])] = List((0, Some(Right(eq1))), (0, Some(Right(eq2))))
+      val input: List[(Int, MixedConstraint)] = List((0, Right(eq1)), (0, Right(eq2)))
       val learned:  List[(Equation,List[MixedConstraint])] = bs.learn(input)
       println("learned: " + learned)
-      val expect: List[(Equation,List[MixedConstraint])] = List((expected, input.map(_._2.get)))
+      val expect: List[(Equation,List[MixedConstraint])] = List((expected, input.map(_._2)))
       assert(learned.equals(expect))
     }
 
@@ -219,11 +219,11 @@ object TestBoundedSum {
       val bs = new BoundedSum(0, 3)
       val eq1 = Equation(List(Addend(1, 0), Addend(1, 1)), LtEq(), 7)
       val eq2 = Equation(List(Addend(1, 0), Addend(2, 1)), GtEq(), 11)
-      val input: List[(Int, Option[MixedConstraint])] = List((0, Some(Right(eq1))), (0, Some(Right(eq2))))
+      val input: List[(Int, MixedConstraint)] = List((0, Right(eq1)), (0, Right(eq2)))
       val learned:  List[(Equation,List[MixedConstraint])] = bs.learn(input)
 //      println("learned: " + learned)
       val expected = Equation(List(Addend(1, 1)), GtEq(), 4)
-      val expect: List[(Equation,List[MixedConstraint])] = List((expected, input.map(_._2.get)))
+      val expect: List[(Equation,List[MixedConstraint])] = List((expected, input.map(_._2)))
       assert(learned.equals(expect))
     }
 
@@ -231,7 +231,7 @@ object TestBoundedSum {
       val bs = new BoundedSum(0, 3)
       val eq1 = Equation(List(Addend(1, 0), Addend(1, 1)), LtEq(), 7)
       val eq2 = Equation(List(Addend(1, 0), Addend(2, 1)), LtEq(), 11)
-      val input: List[(Int, Option[MixedConstraint])] = List((0, Some(Right(eq1))), (0, Some(Right(eq2))))
+      val input: List[(Int, MixedConstraint)] = List((0, Right(eq1)), (0, Right(eq2)))
       val learned:  List[(Equation,List[MixedConstraint])] = bs.learn(input)
 //      println("learned: " + learned)
       val expect: List[(Equation,List[MixedConstraint])] = List() // perhaps we COULD infer something here, but I'm not quite ready to open that can of worms

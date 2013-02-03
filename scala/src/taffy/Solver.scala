@@ -42,9 +42,9 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
 
   // private var decisionLevel: DecisionLevel = 0
 
-  def sanityCheckNoGood(nogood: NoGood[Variables], constraints: List[(VarId, Option[MixedConstraint])]) { }
+  def sanityCheckNoGood(nogood: NoGood[Variables], constraints: List[(VarId, MixedConstraint)]) { }
 
-  def sanityCheckLearned(learned: List[(Constraint, List[MixedConstraint])], constraints: List[(VarId, Option[MixedConstraint])]) { }
+  def sanityCheckLearned(learned: List[(Constraint, List[MixedConstraint])], constraints: List[(VarId, MixedConstraint)]) { }
 
   def solve() : Option[Read[Constraint, Variables, Variable]] = {
     val initialDecisionLevel: DecisionLevel = -1
@@ -93,7 +93,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
             val (nogood, rewound, constraints) = graph.fuip()
             backtracks += 1
             println("backtracks: " + backtracks + ", " + nogood + ", causes: " + constraints)
-            sanityCheckNoGood(nogood, null) // constraints)
+            sanityCheckNoGood(nogood, constraints)
             //          if (graph.isEmpty) return None
 //            println("rewound: " + rewound)
             unassigned ++= rewound
@@ -105,10 +105,10 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
   case (strings, _) => Left(for(Left(s) <- strings.view) yield s)
 }
              */
-            val learned: List[(Constraint, List[MixedConstraint])] = domain.learn(null) // constraints)
+            val learned: List[(Constraint, List[MixedConstraint])] = domain.learn(constraints)
             println("learned: " + learned)
             unrevised ++= learned.map(x => Right(x._1)) // todo: incorporate _2 after isomorphisms have been implemented
-            sanityCheckLearned(learned, null) // constraints)
+            sanityCheckLearned(learned, constraints)
           }
         } else {
           for (varId <- reads) {
@@ -196,13 +196,13 @@ class SolverSanityCheck[Constraint, Variables, Variable]( domain: Domain[Constra
     ret
   }
   
-  override def sanityCheckNoGood(nogood: NoGood[Variables], constraints: List[(VarId, Option[MixedConstraint])]) {
+  override def sanityCheckNoGood(nogood: NoGood[Variables], constraints: List[(VarId, MixedConstraint)]) {
     println("constraints with vars no good: " + constraints)
     println("resolution vars: " + constraints.map(_._1))
-    sanityCheck(nogood.coverage(), Left(nogood), (for ((_, mc) <- constraints; if mc.isDefined) yield { mc.get }))
+    sanityCheck(nogood.coverage(), Left(nogood), constraints.map(_._2))
   }
 
-  override def sanityCheckLearned(learned: List[(Constraint, List[MixedConstraint])], constraints: List[(VarId, Option[MixedConstraint])]) {
+  override def sanityCheckLearned(learned: List[(Constraint, List[MixedConstraint])], constraints: List[(VarId, MixedConstraint)]) {
     println("constraints with vars learned: " + constraints)
     println("resolution vars: " + constraints.map(_._1))
     // todo: pay attention to the constraints argument 

@@ -17,7 +17,7 @@ trait Domain[Constraint, Variables, Variable] {
    * @param constraints
    * @return
    */
-  def learn(constraints : List[(VarId, Option[MixedConstraint])]) : List[(Constraint /* new constraint */,List[MixedConstraint] /* generated from */)] = List.empty
+  def learn(constraints : List[(VarId, MixedConstraint)]) : List[(Constraint /* new constraint */,List[MixedConstraint] /* generated from */)] = List.empty
 
   def revise(rw : ReadWrite[Variables, Variable], c: Constraint) : Boolean
 
