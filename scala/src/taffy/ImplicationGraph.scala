@@ -90,12 +90,16 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
       undoOne()
     }
 
+    var seen: mutable.Set[AssignmentId] = mutable.Set.empty
     val last: Int = assignments.size - 1
     var causes: List[List[(VarId, MixedConstraint)]] = List()
     var frontier: Set[AssignmentId] = Set(last)
-    var reasons: Set[AssignmentId] = Set.empty
-    do {
+    var reasons: Set[AssignmentId] = Set.empty // all variables on the reason side of the cut, excluding the uip
+    do { // todo: still need a seen set, so that elements previously in the frontier set don't show up there again
+      println(toString())
+      println("frontier: " + frontier)
       val newCauses: List[(VarId, MixedConstraint)] = frontier.toList.map(x => (assignments(x).varId, assignments(x).cause.get))
+      println("newCauses: " + newCauses)
       val combined: List[List[(VarId, MixedConstraint)]] = newCauses +: causes
       causes = combined
       def impliers(of: AssignmentId): Set[AssignmentId] = implications.get(of) match {
@@ -103,29 +107,33 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
         case Some(xs) => xs
       }
       frontier = frontier.flatMap(impliers)
-      var remove: Set[AssignmentId] = Set()
+      println("seen: " + seen)
+      frontier = frontier -- seen
+      println("superset of next frontier: " + frontier)
+      var remove: mutable.Set[AssignmentId] = mutable.Set.empty
       for (assignment <- frontier) {
         if (assignments(assignment).decisionLevel < originalDecisionLevel) {
-          remove = remove + assignment
+          remove += assignment
         }
       }
-      // erhg.. this is not right
-      // we want to track the causes of the frontier BEFORE they reach < originalDecisionLevel
+      println("remove: " + remove)
       reasons = reasons ++ remove
       frontier = frontier -- remove
+      println("frontier before maybe exiting: " + frontier)
+      seen ++= frontier
     } while (frontier.size > 1)
     if (frontier.size == 0) {
       throw new RuntimeException("unexpected state. empty frontier. reasons: " + reasons + ", causes: " + causes)
     }
     val uip = frontier.head
-    val nogood = new NoGood[Variables]((reasons + uip).map(x => (assignments(x).varId, assignments(x).variables)).toMap)
+    def forbidden(x: AssignmentId): Set[(VarId, Variables)] = if (x >= numVariables) Set((assignments(x).varId, assignments(x).variables)) else Set.empty
+    val nogood = new NoGood[Variables]((reasons + uip).flatMap(forbidden).toMap)
     while (assignments(assignments.size - 1).decisionLevel == originalDecisionLevel) {
       rewound = rewound + assignments(assignments.size - 1).varId
       undoOne()
     }
     (nogood, rewound, causes)
   }
-}
       /*
   /*
   Calculate reason: This method is given a literal p and an empty vector.
@@ -257,12 +265,12 @@ do {
 } while (counter > 0)
 out_learnt[0] = not p
      */
-  }
+  }                   */
 
   override def toString: String = {
     val sb = new mutable.StringBuilder()
     var lastDecisionLevel = -1
-    for (((vid, values, dl, _), aid) <- assignments.zipWithIndex) {
+    for ((Assignment(vid, values, dl, _), aid) <- assignments.zipWithIndex) {
       if (dl != lastDecisionLevel) {
         sb.append("DL(").append(dl).append(") ")
         lastDecisionLevel = dl
@@ -275,7 +283,7 @@ out_learnt[0] = not p
     }
     sb.toString()
   }
-}                             */
+}
 
 case class Assignment[Constraint, Variables](
   varId: Int,
@@ -286,29 +294,69 @@ case class Assignment[Constraint, Variables](
 object TestImplicationGraph {
   def main(args: Array[String]) {
     // Example from page 4 of http://www.cs.tau.ac.il/~msagiv/courses/ATP/iccad2001_final.pdf
+    val im = new ImplicationGraph[List[Literal], Set[Boolean], Boolean](20, Set(true, false), new SetRanger())
+    def decide(literal: Int) { im.decide(math.abs(literal), Set(literal > 0)) }
+    def implies(literals: Int*) {
+      im.implies(
+        math.abs(literals.last),
+        Set(literals.last > 0),
+        literals.init.map(x => im.mostRecentAssignment(math.abs(x))).toSet,
+        Right[NoGood[Set[Boolean]], List[Literal]](literals.init.map(x => Literal(x > 0, math.abs(x))).toList))
+    }
+    decide(-6)
+    implies(6, -17)
+    decide(-13)
+    implies(13, 8)
+    decide(4)
+    decide(7) // not in graph... just need to fill in something for decision level 4.
+    implies(-4, 19)
+    decide(11)
+    implies(6, -11, -12)
+    implies(-11, 13, 16)
+    implies(12, -16, -2)
+    implies(-4, 2, -10)
+    implies(-8, 10, 1)
+    implies(10, 3)
+    implies(10, -5)
+    implies(17, -1, -3, 5, 18)
+    im.implies(
+      18, Set(),
+      Set(im.mostRecentAssignment(3), im.mostRecentAssignment(19)),
+      Right[NoGood[Set[Boolean]], List[Literal]](List(Literal(false, 3), Literal(false, 19), Literal(false, 18))))
+    val (nogood, rewound, tolearn) = im.fuip()
+    assert(Set(18, 5, 3, 1, 10, 2, 16, 12, 11).equals(rewound))
+    println("forbidden: " + nogood.forbidden)
+    assert(nogood.forbidden.equals(Map(17 -> Set(false), 8 -> Set(true), 10 -> Set(false) -> 19 -> Set(true))))
+    println(tolearn)
+  }
+}
+
+class PathFinder[A](parents: A => Set[A]) {
+  val memoized: mutable.Map[A, Set[A]] = mutable.Map.empty
+  def ancestors(of: A): Set[A] = {
+    memoized.get(of) match {
+      case None =>
+        val ps = parents(of)
+        ps ++ ps.flatMap(x => ancestors(x))
+      case Some(x) => x
+    }
+  }
+}
+
+object TestPathFinder {
+  def main(args: Array[String]) {
     /*
-    6 | ~11 | ~12
-~11 | 13 | 16
-12 | -16 | 2
-~4 | 2 | -10
--8 | 10 | -1
-10 | 3
-10 | 5
-17 | -1 | -3 | 5 | 18
--3 | -19 | 18
-
-pick -6
-deduce -17 (6 | -17)
-pick -13
-deduce 8 (13 | 8)
-pick 4
-deduce 19 (-4 | 19)
-pick 11
-deduce -12, 16, -2, -10, 1, 3, -5, 18, -18
-
+          /-> 3 ------\
+    1 -> 2             -> 6 -> 7
+          \-> 4 -> 5 -/
      */
-    val im = new ImplicationGraph[Disjunction, Set[Boolean], Boolean](20, Set(true, false), new SetRanger())
-    im.decide(6, Set(false)) // 0
-    im.implies(17, Set(false), Set(0), List(Literal(true, 6), Literal(false, -17))) // 1
+    val graph: Map[Int, Set[Int]] = Map(1 -> Set(), 2 -> Set(1), 3 -> Set(2), 4 -> Set(2), 5 -> Set(4), 6 -> Set(3, 5), 7 -> Set(6))
+    val pf = new PathFinder[Int](x => graph(x))
+    assert(Set(1).equals(pf.ancestors(2)))
+    assert(Set(2, 1).equals(pf.ancestors(3)))
+    assert(Set(2, 1).equals(pf.ancestors(4)))
+    assert(Set(4, 2, 1).equals(pf.ancestors(5)))
+    assert(Set(5, 4, 3, 2, 1).equals(pf.ancestors(6)))
+    assert(Set(6, 5, 4, 3, 2, 1).equals(pf.ancestors(7)))
   }
 }
