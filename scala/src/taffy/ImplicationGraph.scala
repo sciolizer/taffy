@@ -91,6 +91,17 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
       undoOne()
     }
 
+    var i: Int = assignments.size - 1
+    val conflictingVariable = assignments(i).varId
+    var conflictingAssignments: Set[AssignmentId] = Set.empty
+    while (assignments(i).decisionLevel == originalDecisionLevel) {
+      if (assignments(i).varId == conflictingVariable) {
+        conflictingAssignments = conflictingAssignments + i
+      }
+      i -= 1
+    }
+
+
     // The current decision variable + the minimum set of variables less than the current decision level that are
     // sufficient to lead to the current conflict.
     // The nogood will be the FUIP plus all reasons which are not ancestors of the uip.
@@ -123,12 +134,11 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
       if (x >= numVariables) Set((assignments(x).varId, assignments(x).variables)) else Set.empty
 
     val pf = new PathFinder[AssignmentId](parents)
-    val conflictingAssignment: AssignmentId = assignments.size - 1
-    val ps: Set[AssignmentId] = parents(conflictingAssignment).filter(x => !isLower(x))
+    val ps: Set[AssignmentId] = conflictingAssignments.flatMap(parents(_)).filter(x => !isLower(x))
     val firstUip = {
-      val ancestors: Set[Set[AssignmentId]] = ps.map(pf.ancestors(_))
+      val ancestors: Set[Set[AssignmentId]] = ps.map(x => pf.ancestors(x) + x)
       // Despite the name, this variable will also contain the decision variable and variables at lower decision levels
-      val uips = ancestors.fold(pf.ancestors(conflictingAssignment))((x,y) => x.intersect(y))
+      val uips = ancestors.fold(conflictingAssignments.flatMap(pf.ancestors(_)))((x,y) => x.intersect(y))
       uips.max
     }
     val exclude = pf.ancestors(firstUip)
@@ -208,47 +218,76 @@ case class Assignment[Constraint, Variables](
   decisionLevel: Int,
   cause: Option[Either[NoGood[Variables], Constraint]])
 
+class TestImplicationGraph(im: ImplicationGraph[List[Literal], Set[Boolean], Boolean]) {
+  def decide(literal: Int) { im.decide(math.abs(literal), Set(literal > 0)) }
+  def implies(literals: Int*): Either[NoGood[Set[Boolean]], List[Literal]] = {
+    val impliedVarId: Int = literals.last
+    val impliedLiteral: Literal = Literal(impliedVarId > 0, math.abs(impliedVarId))
+    val ret: Right[NoGood[Set[Boolean]], List[Literal]] = Right[NoGood[Set[Boolean]], List[Literal]](literals.init.map(x => Literal(x > 0, math.abs(x))).toList :+ impliedLiteral)
+    im.implies(
+      impliedLiteral.vid,
+      Set(impliedLiteral.expected),
+      literals.init.map(x => im.mostRecentAssignment(math.abs(x))).toSet,
+      ret)
+    ret
+  }
+}
+
 object TestImplicationGraph {
   def main(args: Array[String]) {
-    // Example from page 4 of http://www.cs.tau.ac.il/~msagiv/courses/ATP/iccad2001_final.pdf
-    val im = new ImplicationGraph[List[Literal], Set[Boolean], Boolean](20, Set(true, false), new SetRanger())
-    def decide(literal: Int) { im.decide(math.abs(literal), Set(literal > 0)) }
-    def implies(literals: Int*): Either[NoGood[Set[Boolean]], List[Literal]] = {
-      val ret: Right[NoGood[Set[Boolean]], List[Literal]] = Right[NoGood[Set[Boolean]], List[Literal]](literals.init.map(x => Literal(x > 0, math.abs(x))).toList)
+    {
+      // Example from page 4 of http://www.cs.tau.ac.il/~msagiv/courses/ATP/iccad2001_final.pdf
+      val im = new ImplicationGraph[List[Literal], Set[Boolean], Boolean](20, Set(true, false), new SetRanger())
+      val tig = new TestImplicationGraph(im)
+      tig.decide(-6)
+      tig.implies(6, -17)
+      tig.decide(-13)
+      tig.implies(13, 8)
+      tig.decide(4)
+      tig.decide(7) // not in graph... just need to fill in something for decision level 4.
+      tig.implies(-4, 19)
+      tig.decide(11)
+      tig.implies(6, -11, -12)
+      tig.implies(-11, 13, 16)
+      tig.implies(12, -16, -2)
+      tig.implies(-4, 2, -10)
+      val implies1 = tig.implies(-8, 10, 1)
+      val implies3 = tig.implies(10, 3)
+      val impliesNot5 = tig.implies(10, -5)
+      val implies18 = tig.implies(17, -1, -3, 5, 18)
+      val impliesNot18 = Right[NoGood[Set[Boolean]], List[Literal]](List(Literal(false, 3), Literal(false, 19), Literal(false, 18)))
+      // Can't use implies for this last one, since we need to make the value empty instead of a singleton boolean
       im.implies(
-        math.abs(literals.last),
-        Set(literals.last > 0),
-        literals.init.map(x => im.mostRecentAssignment(math.abs(x))).toSet,
-        ret)
-      ret
+        18, Set(),
+        Set(im.mostRecentAssignment(3), im.mostRecentAssignment(19)),
+        impliesNot18)
+      val (nogood, rewound, tolearn) = im.fuip()
+      assert(Set(18, 5, 3, 1, 10, 2, 16, 12, 11).equals(rewound))
+      assert(nogood.forbidden.equals(Map(17 -> Set(false), 8 -> Set(true), 10 -> Set(false), 19 -> Set(true))))
+      val expected = List((1, implies1), (3, implies3), (5, impliesNot5), (18, implies18), (18, impliesNot18))
+      assert(tolearn.equals(expected))
     }
-    decide(-6)
-    implies(6, -17)
-    decide(-13)
-    implies(13, 8)
-    decide(4)
-    decide(7) // not in graph... just need to fill in something for decision level 4.
-    implies(-4, 19)
-    decide(11)
-    implies(6, -11, -12)
-    implies(-11, 13, 16)
-    implies(12, -16, -2)
-    implies(-4, 2, -10)
-    val implies1 = implies(-8, 10, 1)
-    val implies3 = implies(10, 3)
-    val impliesNot5 = implies(10, -5)
-    val implies18 = implies(17, -1, -3, 5, 18)
-    val impliesNot18 = Right[NoGood[Set[Boolean]], List[Literal]](List(Literal(false, 3), Literal(false, 19), Literal(false, 18)))
-    // Can't use implies for this last one, since we need to make the value empty instead of a singleton boolean
-    im.implies(
-      18, Set(),
-      Set(im.mostRecentAssignment(3), im.mostRecentAssignment(19)),
-      impliesNot18)
-    val (nogood, rewound, tolearn) = im.fuip()
-    assert(Set(18, 5, 3, 1, 10, 2, 16, 12, 11).equals(rewound))
-    assert(nogood.forbidden.equals(Map(17 -> Set(false), 8 -> Set(true), 10 -> Set(false), 19 -> Set(true))))
-    val expected = List((1, implies1), (3, implies3), (5, impliesNot5), (18, implies18), (18, impliesNot18))
-    assert(tolearn.equals(expected))
+
+    {
+      // This test tests the case where the FUIP is immediately before the conflicting variable.
+
+      val im = new ImplicationGraph[List[Literal], Set[Boolean], Boolean](4, Set(true, false), new SetRanger())
+      val tig = new TestImplicationGraph(im)
+      tig.decide(1)
+      tig.implies(-1, 2)
+      val implies3 = tig.implies(-2, 3)
+      val impliesNot3 = Right[NoGood[Set[Boolean]], List[Literal]](List(Literal(false, 2), Literal(true, 3)))
+      // Can't use tig.implies for this last one, since we need to make the value empty instead of a singleton boolean
+      im.implies(
+        3, Set(),
+        Set(im.mostRecentAssignment(2), im.mostRecentAssignment(3)),
+        impliesNot3)
+      val (nogood, rewound, tolearn) = im.fuip()
+      assert(Set(1, 2, 3).equals(rewound))
+      assert(nogood.forbidden.equals(Map(2 -> Set(true))))
+      val expected = List((3, implies3))
+      assert(tolearn.equals(expected))
+    }
   }
 }
 

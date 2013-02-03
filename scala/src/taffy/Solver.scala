@@ -108,7 +108,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
             val learned: List[(Constraint, List[MixedConstraint])] = domain.learn(constraints)
             println("learned: " + learned)
             unrevised ++= learned.map(x => Right(x._1)) // todo: incorporate _2 after isomorphisms have been implemented
-            sanityCheckLearned(learned, constraints)
+//            sanityCheckLearned(learned, constraints)
           }
         } else {
           for (varId <- reads) {
@@ -199,7 +199,12 @@ class SolverSanityCheck[Constraint, Variables, Variable]( domain: Domain[Constra
   override def sanityCheckNoGood(nogood: NoGood[Variables], constraints: List[(VarId, MixedConstraint)]) {
     println("constraints with vars no good: " + constraints)
     println("resolution vars: " + constraints.map(_._1))
-    sanityCheck(nogood.coverage(), Left(nogood), constraints.map(_._2))
+    // This check is not helpful: nogood generation can only be checked properly by
+    // tracing the ancestors of the conflicting variable all the way back to the
+    // decision variables. You need EVERY constraint on EVERY (related) implied variable, even the
+    // ones at lower decision levels, in order to ensure you aren't missing any constraints that might
+    // be the only one to reject a particular assignment that the nogood rejects.
+//    sanityCheck(nogood.coverage(), Left(nogood), constraints.map(_._2).toSet.toList)
   }
 
   override def sanityCheckLearned(learned: List[(Constraint, List[MixedConstraint])], constraints: List[(VarId, MixedConstraint)]) {
@@ -207,7 +212,7 @@ class SolverSanityCheck[Constraint, Variables, Variable]( domain: Domain[Constra
     println("resolution vars: " + constraints.map(_._1))
     // todo: pay attention to the constraints argument 
     for ((nc, from) <- learned) {
-      sanityCheck(domain.coverage(nc).toSet, Right(nc), from)
+      sanityCheck(domain.coverage(nc).toSet, Right(nc), from.toSet.toList)
     }
   }
   
