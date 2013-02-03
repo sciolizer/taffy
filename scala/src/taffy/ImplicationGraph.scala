@@ -315,10 +315,8 @@ object TestImplicationGraph {
         impliesNot2)
       val (nogood, rewound, tolearn) = im.fuip()
       assert(Set(1, 2).equals(rewound))
-      println("nogood: " + nogood.forbidden)
       assert(nogood.forbidden.equals(Map(1 -> Set(true))))
       val expected = List((2, implies2), (2, impliesNot2))
-      println("tolearn: " + tolearn)
       assert(tolearn.equals(expected))
     }
   }
