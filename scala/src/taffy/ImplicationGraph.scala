@@ -125,17 +125,11 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
     val pf = new PathFinder[AssignmentId](parents)
     val conflictingAssignment: AssignmentId = assignments.size - 1
     val ps: Set[AssignmentId] = parents(conflictingAssignment).filter(x => !isLower(x))
-    val firstUip = { /* if (ps.isEmpty) {
-      // Conflict came immediately after deciding a value, so the current decision variable is the FUIP.
-      var ret = assignments.size - 1
-      while (assignments(ret - 1).decisionLevel == originalDecisionLevel) ret -= 1
-      ret
-    } else { */
+    val firstUip = {
       val ancestors: Set[Set[AssignmentId]] = ps.map(pf.ancestors(_))
       // Despite the name, this variable will also contain the decision variable and variables at lower decision levels
       val uips = ancestors.fold(pf.ancestors(conflictingAssignment))((x,y) => x.intersect(y))
-      val uip = uips.max
-      uip
+      uips.max
     }
     val exclude = pf.ancestors(firstUip)
     val nogood = new NoGood[Variables]((reasons -- exclude + firstUip).flatMap(forbidden).toMap)
@@ -148,97 +142,6 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
     }
     (nogood, rewound, causes)
   }
-      /*
-  /*
-  Calculate reason: This method is given a literal p and an empty vector.
-  The constraint is the _reason_ for p being true, that is, during propagation,
-  the current constraint enqueued p. The received vector is extended to include
-  a set of assignments (represented as literals) implying p. The current variable
-  assignments are guaranteed to be identical to that of the moment before
-  the constraint propagated p. The literal p is also allowed to be the special
-  constant _bottom_ in which case the reason for the clause being
-  _conflicting_ should be returned through the vector.
-   */
-  /**
-   * Adapted from the minisat paper.
-   */
-  def fuipOld(): (NoGood[Variables], Set[VarId] /* rewound variables */, List[(VarId, Option[MixedConstraint])]) = {
-    println("Before: " + toString())
-
-    var rewound: Set[VarId] = Set.empty
-
-    // back track until we find most recent conflicting variable
-    while (!ranger.isEmpty(assignments(assignments.size - 1)._2)) {
-      rewound = rewound + assignments(assignments.size - 1)._1
-      undoOne()
-    }
-
-    // var confl = conflicting
-    val seen: mutable.Set[AssignmentId] = mutable.Set.empty
-    var counter = 0
-    var aids: collection.Set[AssignmentId] = implications(assignments.size - 1) // todo: what if last assignment was not an empty collection?
-    var nogoods: Map[VarId, Variables] = Map.empty
-    var constraints: List[(VarId, Option[MixedConstraint])] = List.empty
-    var out_btlevel = 0
-    var lastVar: VarId = null.asInstanceOf[VarId]
-    var lastReason: Variables = null.asInstanceOf[Variables]
-    var lastConstraint: Option[MixedConstraint] = None
-    val startingDecisionLevel = decisionLevel
-
-    do {
-//      println("aids: " + aids)
-      for (aid <- aids) {
-        if (!seen.contains(aid)) {
-          seen += aid
-//          println("seen: " + seen)
-          val assignment: (VarId, Variables, DecisionLevel, Option[MixedConstraint]) = assignments(aid)
-          val vidLevel: DecisionLevel = assignment._3
-          val vid: ImplicationGraph.this.type#VarId = assignment._1
-          if (vidLevel == startingDecisionLevel) { // todo: is this allowed to decrease over time?
-            counter += 1
-            println("at starting decision level: " + assignment._4 + " implies var " + vid + " is " + assignment._2)
-            constraints = constraints :+ ((vid, assignment._4)) // todo: what is the performance of :+ and +: ? (also used below)
-          } else if (vidLevel > 0) {
-            println("beyond starting decision level: " + assignment._4 + " implies var " + vid + " is " + assignment._2)
-            nogoods = nogoods + ((vid, assignment._2))
-//            constraints = constraints :+ ((vid, assignment._4)) // todo: what is the performance of :+ and +: ? (also used below)
-//            println("nogoods: " + nogoods)
-            out_btlevel = math.max(out_btlevel, vidLevel)
-          }
-        }
-      }
-      var p: AssignmentId = null.asInstanceOf[AssignmentId]
-      do {
-        // todo: this loop can be made faster. See minisat C++ code. Only tricky part is probably rewound
-        val lastAssignment: (VarId, Variables, DecisionLevel, Option[MixedConstraint]) = assignments.last
-        p = assignments.size - 1
-        lastVar = lastAssignment._1
-        rewound = rewound + lastVar
-        lastReason = lastAssignment._2
-        lastConstraint = lastAssignment._4
-        aids = implications.get(p) match { case None => null.asInstanceOf[collection.Set[AssignmentId]]; case Some(x) => x }
-        undoOne()
-      } while (!seen.contains(p))
-//      println("inner rewound: " + rewound)
-      counter -= 1
-    } while (counter > 0)
-    nogoods = nogoods + ((lastVar, lastReason))
-    constraints = constraints :+ ((lastVar, lastConstraint))
-    println("counter back to zero: " + lastConstraint + " implies var " + lastVar + " is " + lastReason)
-    // this new constraint will be unit in the variable that is about to be tried next. I think.
-    val nogood: NoGood[Variables] = new NoGood[Variables](nogoods)
-    if (!nogood.isUnit[Constraint, Variable](new ReadWriteGraph(this, null.asInstanceOf[MixedConstraint], mutable.Set(), mutable.Set(), ranger), ranger)) {
-      throw new RuntimeException("generated nogood is not unit: " + nogood)
-    }
-    while (out_btlevel < decisionLevel) {
-      rewound = rewound + assignments.last._1
-      undoOne()
-    }
-//    println("nogood: " + nogood)
-//    println("outer rewound: " + rewound)
-//    println("after: " + toString())
-//    println("btlevel_out: " + out_btlevel)
-    Tuple3(nogood, rewound, constraints)
 
     /*
     First unique implication point:
@@ -279,7 +182,7 @@ do {
 } while (counter > 0)
 out_learnt[0] = not p
      */
-  }                   */
+  //}                   */
 
   override def toString: String = {
     val sb = new mutable.StringBuilder()
@@ -343,11 +246,8 @@ object TestImplicationGraph {
       impliesNot18)
     val (nogood, rewound, tolearn) = im.fuip()
     assert(Set(18, 5, 3, 1, 10, 2, 16, 12, 11).equals(rewound))
-    println("forbidden: " + nogood.forbidden)
     assert(nogood.forbidden.equals(Map(17 -> Set(false), 8 -> Set(true), 10 -> Set(false), 19 -> Set(true))))
-    println(tolearn)
     val expected = List((1, implies1), (3, implies3), (5, impliesNot5), (18, implies18), (18, impliesNot18))
-    println(expected)
     assert(tolearn.equals(expected))
   }
 }
