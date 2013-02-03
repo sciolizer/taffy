@@ -82,6 +82,7 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
   // previously I made the constraint be an Option, but that is wrong, since EVERYTHING on the conflict side
   // of the cut must be an implied variable.
   def fuip(): (NoGood[Variables], Set[VarId] /* rewound variables */, List[(VarId, MixedConstraint)]) = {
+    println("Before fuip: " + toString())
     var rewound: Set[VarId] = Set.empty
     val originalDecisionLevel = decisionLevel
 
@@ -137,8 +138,9 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
     val ps: Set[AssignmentId] = conflictingAssignments.flatMap(parents(_)).filter(x => !isLower(x))
     val firstUip = {
       val ancestors: Set[Set[AssignmentId]] = ps.map(x => pf.ancestors(x) + x)
+      val everything: Set[AssignmentId] = conflictingAssignments.flatMap(pf.ancestors(_))
       // Despite the name, this variable will also contain the decision variable and variables at lower decision levels
-      val uips = ancestors.fold(conflictingAssignments.flatMap(pf.ancestors(_)))((x,y) => x.intersect(y))
+      val uips = ancestors.fold(everything)((x,y) => x.intersect(y))
       uips.max
     }
     val exclude = pf.ancestors(firstUip)
