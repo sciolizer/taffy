@@ -56,10 +56,10 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
     unrevised ++= problem.constraints.map(Right(_))
 
     while (!unrevised.isEmpty || !unassigned.isEmpty) {
-      println("unrevised: " + unrevised)
+//      println("unrevised: " + unrevised)
       if (!unrevised.isEmpty) {
         val constraint: MixedConstraint = unrevised.head
-        println("popped constraint: " + constraint)
+//        println("popped constraint: " + constraint)
         unrevised -= constraint
         val reads = mutable.Set[VarId]()
         val writes = mutable.Set[VarId]()
