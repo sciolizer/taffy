@@ -73,7 +73,7 @@ object ExactCover {
     }
   }
 
-  def solve[Constraint, Satisfier](
+  def solve[Constraint, Satisfier : ClassManifest](
     exact: Set[Constraint],
     bounded: Set[Constraint],
     getSatisfiers: Constraint => Set[Satisfier],
@@ -83,7 +83,7 @@ object ExactCover {
       satisfiers ++= getSatisfiers(constraint)
     }
     val vars: mutable.Map[Satisfier, Int] = mutable.Map.empty
-    val satisfierIndex: ArrayBuffer[Satisfier] = new ArrayBuffer()
+    val satisfierIndex: ArrayBuffer[Satisfier] = new ArrayBuffer[Satisfier]()
     var i = 0
     for (satisfier <- satisfiers) {
       vars(satisfier) = i
@@ -100,7 +100,10 @@ object ExactCover {
     }
     val domain = new BoundedSum(0, 1)
     val problem = new Problem[Equation, Set[Int], Int](vars.size, equations, Set(0, 1))
-    val solver = solverFactory.make(domain, problem, new SetRanger(), satisfierIndex.toArray) // todo: revert to ordinary solver (without sanity check)
+//    val si: Array[Satisfier] = satisfierIndex.toArray[Satisfier.class] WTF?
+    val si = new Array[Satisfier](satisfierIndex.length)
+    satisfierIndex.copyToArray(si)
+    val solver: Solver[Equation, Set[Int], Int] = solverFactory.make(domain, problem, new SetRanger(), si) // todo: revert to ordinary solver (without sanity check)
     solver.solve() match {
       case None => None
       case Some(reader) =>
@@ -127,7 +130,7 @@ object MatrixExactCover {
     def getSatisfiers(constraint: Int): Set[Set[Int]] = {
       for (satisfier <- Set(a, b, c, d, e, f); if satisfier.contains(constraint)) yield satisfier
     }
-    ExactCover.solve[Int, Set[Int]]((1 to 7).toSet, Set.empty, getSatisfiers) match {
+    ExactCover.solve[Int, Set[Int]]((1 to 7).toSet, Set(), getSatisfiers, ExactCover.defaultSolverFactory() /* wtf? */) match {
       case None => throw new RuntimeException("could not find a solution")
       case Some(x) => if (!Set(b, d, f).equals(x)) throw new RuntimeException("unexpected solution: " + x)
     }
@@ -204,7 +207,7 @@ object NQueens {
               Iterator.single(partial)
             } else {
               (if (bounded.contains(constraint)) Iterator.single(partial) else Iterator.empty) ++
-              (for ((r, c) <- spots; partial.get((r,c)).isEmpty) yield {
+              (for ((r, c) <- spots; if partial.get((r,c)).isEmpty) yield {
                 partial + ((r,c) -> true)
               }).iterator
             }
