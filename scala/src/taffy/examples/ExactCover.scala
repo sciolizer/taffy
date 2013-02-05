@@ -171,7 +171,7 @@ object NQueens {
             satisfyingAssignments(rejectingAssignment, (exact ++ bounded).toList).find(x => true) match {
               case None =>
               case Some(a) =>
-                showBoard(size, rejectingAssignment)
+                showBoard(size, a)
                 throw new IllegalStateException("nogood is " + rejectingAssignment + "\nbut solution exists.\n" )
             }
           }
@@ -203,13 +203,16 @@ object NQueens {
             }
             if (count > 1) {
               Iterator.empty
-            } else if (count == 1) {
-              Iterator.single(partial)
             } else {
-              (if (bounded.contains(constraint)) Iterator.single(partial) else Iterator.empty) ++
-              (for ((r, c) <- spots; if partial.get((r,c)).isEmpty) yield {
-                partial + ((r,c) -> true)
-              }).iterator
+              val zeroed = spots.map(x => (x, false)).toMap ++ partial
+              if (count == 1) {
+                Iterator.single(zeroed)
+              } else {
+                (if (bounded.contains(constraint)) Iterator.single(zeroed) else Iterator.empty) ++
+                (for ((r, c) <- spots; if partial.get((r,c)).isEmpty) yield {
+                  zeroed + ((r,c) -> true) // this is not right; we need to zero out the remainder as well
+                }).iterator
+              }
             }
           }
         }
