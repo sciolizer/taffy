@@ -1,11 +1,24 @@
 package taffy.examples
 
 import taffy._
-import domains._
 import domains.Addend
 import domains.Eq
 import domains.Equation
 import domains.LtEq
+import examples.ExactCover.SolverFactory
+import taffy.domains.Addend
+import taffy.domains.Eq
+import taffy.domains.Equation
+import taffy.domains.LtEq
+import taffy.domains.Addend
+import taffy.domains.Eq
+import taffy.domains.Equation
+import taffy.domains.LtEq
+import taffy.domains._
+import taffy.domains.Addend
+import taffy.domains.Eq
+import taffy.domains.Equation
+import taffy.domains.LtEq
 import scala.collection.mutable
 import taffy.ReadWrite.{Accepts, Is, Rejects}
 import scala.{None, collection}
@@ -13,6 +26,9 @@ import collection.mutable.ArrayBuffer
 import taffy.ReadWrite.Accepts
 import taffy.ReadWrite.Is
 import taffy.ReadWrite.Rejects
+import scala.Some
+import scala.Some
+import scala.Some
 
 /**
  * Created with IntelliJ IDEA.
@@ -39,7 +55,29 @@ in different directions.
 And if all else fails, don't worry about generating a new equation!
  */
 object ExactCover {
-  def solve[Constraint, Satisfier](exact: Set[Constraint],  bounded: Set[Constraint],  getSatisfiers: Constraint => Set[Satisfier]): Option[Set[Satisfier]] = {
+
+  trait SolverFactory[Satisfier] {
+    def make(domain: BoundedSum,
+             problem: Problem[Equation, Set[Int], Int],
+             ranger: Ranger[Set[Int], Int],
+             satisfierIndex: Array[Satisfier]): Solver[Equation, Set[Int], Int]
+  }
+
+  def defaultSolverFactory[Satisfier](): SolverFactory[Satisfier] = {
+    new SolverFactory[Satisfier] {
+      def make(domain: BoundedSum,
+               problem: Problem[Equation, Set[Int], Int],
+               ranger: Ranger[Set[Int], Int],
+               satisfierIndex: Array[Satisfier]): Solver[Equation, Set[Int], Int]
+      = new Solver[Equation, Set[Int], Int](domain, problem, ranger)
+    }
+  }
+
+  def solve[Constraint, Satisfier](
+    exact: Set[Constraint],
+    bounded: Set[Constraint],
+    getSatisfiers: Constraint => Set[Satisfier],
+    solverFactory: SolverFactory[Satisfier] = defaultSolverFactory()): Option[Set[Satisfier]] = {
     val satisfiers: mutable.Set[Satisfier] = mutable.Set.empty
     for (constraint <- (exact ++ bounded)) {
       satisfiers ++= getSatisfiers(constraint)
@@ -62,7 +100,7 @@ object ExactCover {
     }
     val domain = new BoundedSum(0, 1)
     val problem = new Problem[Equation, Set[Int], Int](vars.size, equations, Set(0, 1))
-    val solver = new SolverSanityCheck[Equation, Set[Int], Int](domain, problem, new SetRanger()) // todo: revert to ordinary solver (without sanity check)
+    val solver = solverFactory.make(domain, problem, new SetRanger(), satisfierIndex.toArray) // todo: revert to ordinary solver (without sanity check)
     solver.solve() match {
       case None => None
       case Some(reader) =>
@@ -122,17 +160,75 @@ object NQueens {
     for (constraint <- bounded) {
       println(constraint + ": " + getSatisfiers(constraint))
     }
-    ExactCover.solve[Constraint, (Int, Int)](exact, bounded, getSatisfiers) match {
+    val sf = new SolverFactory[(Int, Int)] {
+      def make(domain: BoundedSum, problem: Problem[Equation, Set[Int], Int], ranger: Ranger[Set[Int], Int], satisfierIndex: Array[(Int, Int)]): Solver[Equation, Set[Int], Int] = {
+        new Solver[Equation, Set[Int], Int](domain, problem, ranger) {
+          override def sanityCheckNoGood(nogood: NoGood[Set[Int]], constraints: List[(VarId, MixedConstraint)]) {
+            val rejectingAssignment: Map[(Int, Int), Boolean] = nogood.forbidden.toList.map(x => (satisfierIndex(x._1), single(x._2))).toMap
+            satisfyingAssignments(rejectingAssignment, (exact ++ bounded).toList).find(x => true) match {
+              case None =>
+              case Some(a) =>
+                showBoard(size, rejectingAssignment)
+                throw new IllegalStateException("nogood is " + rejectingAssignment + "\nbut solution exists.\n" )
+            }
+          }
+
+          override def sanityCheckLearned(learned: List[(Equation, List[MixedConstraint])], constraints: List[(VarId, MixedConstraint)]) {
+            super.sanityCheckLearned(learned, constraints)
+          }
+
+          def single[Int](s: Set[Int]): Boolean = {
+            if (s.size == 1) (s.head == 1) else throw new RuntimeException("set is not a singleton")
+          }
+
+          def satisfyingAssignments(partial: Map[(Int, Int), Boolean], constraints: List[Constraint]): Iterator[Map[(Int, Int), Boolean]] = {
+            if (constraints.isEmpty) {
+              Iterator.single(partial)
+            } else {
+              val constraint: Constraint = constraints.head
+              meets(constraint, partial, getSatisfiers(constraint)).flatMap(m => satisfyingAssignments(m, constraints.tail))
+            }
+          }
+
+          def meets(constraint: Constraint, partial: Map[(Int, Int), Boolean], spots: Set[(Int, Int)]): Iterator[Map[(Int, Int), Boolean]] = {
+            var count = 0
+            for ((r, c) <- spots) {
+              partial.get((r,c)) match {
+                case None =>
+                case Some(b) => if (b) count += 1
+              }
+            }
+            if (count > 1) {
+              Iterator.empty
+            } else if (count == 1) {
+              Iterator.single(partial)
+            } else {
+              (if (bounded.contains(constraint)) Iterator.single(partial) else Iterator.empty) ++
+              (for ((r, c) <- spots; partial.get((r,c)).isEmpty) yield {
+                partial + ((r,c) -> true)
+              }).iterator
+            }
+          }
+        }
+      }
+    }
+    ExactCover.solve[Constraint, (Int, Int)](exact, bounded, getSatisfiers, sf) match {
       case None =>
         println("no solution")
         if (size != 2 && size != 3) throw new RuntimeException("This is probably a bug!")
-      case Some(spots) =>
-        for (i <- 0 until size) {
-          for (j <- 0 until size) {
-            print(if (spots.contains((i, j))) "X" else ".")
-          }
-          println()
+      case Some(spots) => showBoard(size, spots.map(x => (x, true)).toMap)
         }
+    }
+
+    def showBoard(size: Int, spots: Map[(Int, Int), Boolean]) {
+      for (i <- 0 until size) {
+        for (j <- 0 until size) {
+          spots.get((i, j)) match {
+            case None => print("?")
+            case Some(b) => print(if (b) "X" else ".")
+          }
+        }
+        println()
     }
   }
 }
