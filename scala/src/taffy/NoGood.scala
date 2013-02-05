@@ -52,3 +52,13 @@ class NoGood[Variables](val forbidden: Map[Int, Variables]) {
     forbidden.toString()
   }
 }
+
+object TestNogood {
+  def main(args: Array[String]) {
+    val ng = new NoGood[Set[Int]](Map(1 -> Set(1)))
+    val ranger = new SetRanger[Int]()
+    val rw = new ReadWriteMock[Set[Int], Int](Map(1 -> Set(0, 1)), ranger)
+    assert(ng.revise(rw, ranger))
+    assert(rw.changes.equals(Map(1 -> Set(0))))
+  }
+}

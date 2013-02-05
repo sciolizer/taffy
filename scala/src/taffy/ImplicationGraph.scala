@@ -28,10 +28,14 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
   def implies(vid: VarId, values: Variables, because: Set[AssignmentId], constraint: MixedConstraint): AssignmentId = {
     if (constraint == null) throw new IllegalArgumentException("constraint cannot be null")
     implications(assignments.size) = because + mostRecentAssignment(vid) // previous value of variable always plays a factor in determining its new value. todo: this is actually not true. e.g. a call to setVar involves no reading of previous values
+    val expectedDL = because.map(assignments(_).decisionLevel).max
+    if (decisionLevel != expectedDL) {
+      throw new IllegalStateException("Tried to imply var " + vid + " at DL " + decisionLevel + " but max of causes is " + expectedDL)
+    }
     record(vid, values, Some(constraint))
   }
 
-  def decide(vid: VarId, value: Variables) {
+  def decide(vid: VarId, value: Variables): Int = {
     dl += 1
     record(vid, value, None)
   }
@@ -148,11 +152,18 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
     val causesSet: Set[(AssignmentId, VarId, MixedConstraint)] = (firstImplications -- exclude - firstUip).map(a => ((a, assignments(a).varId, assignments(a).cause.get)))
     val causes: List[(VarId, MixedConstraint)] = causesSet.toList.sortBy(_._1).map(x => (x._2, x._3))
 
-    while (assignments(assignments.size - 1).decisionLevel == originalDecisionLevel) {
+    // subtracting firstUip only has an affect when the current decision variable IS the FUIP.
+    val earlierDecisionLevels = (reasons -- exclude - firstUip).map(assignments(_).decisionLevel)
+    val backjumpTo = if (earlierDecisionLevels.isEmpty) 0 else earlierDecisionLevels.max
+
+    while (assignments(assignments.size - 1).decisionLevel != backjumpTo) {
       rewound = rewound + assignments(assignments.size - 1).varId
       undoOne()
     }
-    (nogood, rewound, causes)
+    val ret = (nogood, rewound, causes)
+    println("ret: " + ret)
+    println("after: " + toString())
+    ret
   }
 
     /*
@@ -246,8 +257,8 @@ object TestImplicationGraph {
       tig.decide(-13)
       tig.implies(13, 8)
       tig.decide(4)
-      tig.decide(7) // not in graph... just need to fill in something for decision level 4.
       tig.implies(-4, 19)
+      tig.decide(7) // not in graph... just need to fill in something for decision level 4.
       tig.decide(11)
       tig.implies(6, -11, -12)
       tig.implies(-11, 13, 16)
@@ -318,6 +329,55 @@ object TestImplicationGraph {
       assert(nogood.forbidden.equals(Map(1 -> Set(true))))
       val expected = List((2, implies2), (2, impliesNot2))
       assert(tolearn.equals(expected))
+    }
+  }
+}
+
+object TestBackjumping {
+  def main(args: Array[String]) {
+    {
+      // Fast backjumping is: backtrack to the maximum decision level of all variables in the nogood
+      // excluding the FUIP. It is not always optimal (sometimes it is better to jumpback not quite
+      // as far). However, it's been shown to be effective in certain conflict-directed learning SAT
+      // solvers, like chaff.
+      /*
+      v0 = 0
+      v1 = 0 -> v2 = 0 ---> v3 = conflict
+      v0 is decision level 1, the rest are decision level 2.
+      The nogood generated will be that v2 != 0. Since this relies
+      on no other variables, fast backjumping should go all the way back to decision level 0, so that
+      v2 can be permanently set to != 0.
+       */
+      val im = new ImplicationGraph[Unit, Set[Int], Int](5, Set(0, 1), new SetRanger())
+      im.decide(0, Set(0))
+      val a0 = im.decide(1, Set(0))
+      val a1 = im.implies(2, Set(0), Set(a0), Right(Unit))
+      im.implies(3, Set(), Set(a1), Right(Unit))
+      im.fuip()
+      assert(im.decisionLevel == 0)
+    }
+
+    {
+      /*
+      Another example:
+      1: v0 = 0
+      2: v1 = 0 -----------\
+      3: v2 = 0             \
+      4: v3 = 0 -> v4 = 0 -------> v5 = conflict
+
+      Nogood generated: v4 != 0 or v1 != 0
+      Fast backjumping will go back to decision level 2, so that it can deduce v4 != 0 at that level.
+       */
+      val im = new ImplicationGraph[Unit, Set[Int], Int](6, Set(0, 1), new SetRanger())
+      im.decide(0, Set(0))
+      val a0 = im.decide(1, Set(0))
+      im.decide(2, Set(0))
+      val a1 = im.decide(3, Set(0))
+      val a2 = im.implies(4, Set(0), Set(a1), Right(Unit))
+      im.implies(5, Set(), Set(a0, a2), Right(Unit))
+
+      im.fuip()
+      assert(im.decisionLevel == 2)
     }
   }
 }

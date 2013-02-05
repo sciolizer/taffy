@@ -96,8 +96,8 @@ class ReadWriteGraph[Constraint, Variables, Variable](graph: ImplicationGraph[Co
     val replacement = replacer(original)
     if (!ranger.isEmpty(ranger.subtraction(original, replacement))) {
       writes += v
-      val reads = Set.empty ++ assignmentReads // is there a better way? Scala collections confuse me.
-      graph.implies(v, replacement, reads, constraint)
+      val rs = Set.empty ++ assignmentReads // is there a better way? Scala collections confuse me.
+      graph.implies(v, replacement, rs, constraint)
     }
   }
 }
