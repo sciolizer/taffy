@@ -275,7 +275,8 @@ object TestImplicationGraph {
         Set(im.mostRecentAssignment(3), im.mostRecentAssignment(19)),
         impliesNot18)
       val (nogood, rewound, tolearn) = im.fuip()
-      assert(Set(18, 5, 3, 1, 10, 2, 16, 12, 11).equals(rewound))
+      println("rewound: " + rewound)
+      assert(Set(18, 5, 3, 1, 10, 2, 16, 12, 11, 7).equals(rewound)) // 7 included because of fast backjumping
       assert(nogood.forbidden.equals(Map(17 -> Set(false), 8 -> Set(true), 10 -> Set(false), 19 -> Set(true))))
       val expected = List((1, implies1), (3, implies3), (5, impliesNot5), (18, implies18), (18, impliesNot18))
       assert(tolearn.equals(expected))
@@ -329,6 +330,38 @@ object TestImplicationGraph {
       assert(nogood.forbidden.equals(Map(1 -> Set(true))))
       val expected = List((2, implies2), (2, impliesNot2))
       assert(tolearn.equals(expected))
+    }
+
+    {
+      /*
+              0--> 1
+                |
+                |
+           /--> 5---\
+          /     |    \
+      4 ----->  6 -------> 8
+          \     |     /
+          \---> 7 ---/
+                ^
+                |          All vertical bars except this one point downward.
+             2 --> 3
+       */
+      val im = new ImplicationGraph[Unit, Set[Unit], Unit](9, Set(Unit), new SetRanger())
+      val u: Set[Unit] = Set(Unit)
+      val a0 = im.decide(0, u)
+      val a1 = im.implies(1, u, Set(a0), Right(Unit))
+      val a2 = im.decide(2, u)
+      val a3 = im.implies(3, u, Set(a2), Right(Unit))
+      val a4 = im.decide(4, u)
+      val a5 = im.implies(5, u, Set(a0, a1, a4), Right(Unit))
+      val a6 = im.implies(6, u, Set(a4, a5), Right(Unit))
+      val a7 = im.implies(7, u, Set(a2, a3, a4, a6), Right(Unit))
+      val a8 = im.implies(8, Set(), Set(a5, a6, a7), Right(Unit))
+      val (nogood, _, _) = im.fuip()
+      println("nogood: " + nogood)
+      val expected: Map[Int, Set[Unit]] = List(0, 1, 2, 3, 4).map(x => (x -> Set(()))).toMap
+      println("expected: " + expected)
+      assert(expected.equals(nogood.forbidden))
     }
   }
 }

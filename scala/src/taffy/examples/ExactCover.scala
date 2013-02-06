@@ -90,7 +90,7 @@ object ExactCover {
       satisfierIndex += satisfier
       i += 1
     }
-    println("satisfierIndex: " + satisfierIndex)
+    println("satisfierIndex: " + satisfierIndex.zip(0 until (satisfierIndex.size)).toMap)
     var equations: Set[Equation] = Set.empty
     for (constraint <- exact) {
       equations = equations + Equation(getSatisfiers(constraint).toList.map(x => Addend(1, vars(x))), Eq(), 1)
