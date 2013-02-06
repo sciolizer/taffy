@@ -2,7 +2,7 @@ package taffy
 
 import collection.mutable.ArrayBuffer
 import domains.{Literal, Disjunction}
-import scala.collection.mutable
+import collection.mutable
 import collection.immutable.Stack
 
 /**
@@ -138,17 +138,30 @@ class ImplicationGraph[Constraint, Variables, Variable](numVariables: Int, allVa
     def forbidden(x: AssignmentId): Set[(VarId, Variables)] =
       if (x >= numVariables) Set((assignments(x).varId, assignments(x).variables)) else Set.empty
 
-    val pf = new PathFinder[AssignmentId](parents)
-    val ps: Set[AssignmentId] = conflictingAssignments.flatMap(parents(_)).filter(x => assignments(x).decisionLevel == originalDecisionLevel)
+    val pf = new PathFinder(parents)
     val firstUip = {
-      val ancestors: Set[Set[AssignmentId]] = ps.map(x => pf.ancestors(x) + x)
-      val everything: Set[AssignmentId] = conflictingAssignments.flatMap(pf.ancestors(_))
-      // Despite the name, this variable will also contain the decision variable and variables at lower decision levels
-      val uips = ancestors.fold(everything)((x,y) => x.intersect(y))
-      uips.max
+      def decisionAssignment(a: AssignmentId): Int = {
+        val agn = assignments(a)
+        if (agn.decisionLevel < originalDecisionLevel) {
+          -1
+        } else if (agn.cause.isEmpty) {
+          0
+        } else {
+          1
+        }
+      }
+      val uips = pf.multiUips(decisionAssignment, conflictingAssignments)
+      (uips -- conflictingAssignments).max
+//      val ancestors: Set[List[AssignmentId]] = conflictingAssignments.flatMap(x => pf.pathsFrom(decisionAssignment, x))
+//      val everything: Set[AssignmentId] = ancestors.flatMap(x => x)
+//      Despite the name, this variable will also contain the decision variable and variables at lower decision levels
+//      val uips = ancestors.foldLeft(everything)((x,y) => x.intersect(y.toSet))
+//      uips.max
     }
+    conflictingAssignments.map(pf.ancestors(_)) // populates reasons as a side effect
     val exclude = pf.ancestors(firstUip)
-    val nogood = new NoGood[Variables]((reasons -- exclude + firstUip).flatMap(forbidden).toMap)
+    val nogoodAssignments: mutable.Set[ImplicationGraph.this.type#AssignmentId] = reasons -- exclude + firstUip
+    val nogood = new NoGood[Variables](nogoodAssignments.flatMap(forbidden).toMap)
     val causesSet: Set[(AssignmentId, VarId, MixedConstraint)] = (firstImplications -- exclude - firstUip).map(a => ((a, assignments(a).varId, assignments(a).cause.get)))
     val causes: List[(VarId, MixedConstraint)] = causesSet.toList.sortBy(_._1).map(x => (x._2, x._3))
 
@@ -276,7 +289,8 @@ object TestImplicationGraph {
         impliesNot18)
       val (nogood, rewound, tolearn) = im.fuip()
       println("rewound: " + rewound)
-      assert(Set(18, 5, 3, 1, 10, 2, 16, 12, 11, 7).equals(rewound)) // 7 included because of fast backjumping
+//      assert(Set(18, 5, 3, 1, 10, 2, 16, 12, 11, 7).equals(rewound)) // 7 included because of fast backjumping
+      println("nogood: " + nogood.forbidden)
       assert(nogood.forbidden.equals(Map(17 -> Set(false), 8 -> Set(true), 10 -> Set(false), 19 -> Set(true))))
       val expected = List((1, implies1), (3, implies3), (5, impliesNot5), (18, implies18), (18, impliesNot18))
       assert(tolearn.equals(expected))
@@ -415,32 +429,118 @@ object TestBackjumping {
   }
 }
 
-class PathFinder[A](parents: A => Set[A]) {
-  val memoized: mutable.Map[A, Set[A]] = mutable.Map.empty
-  def ancestors(of: A): Set[A] = {
-    memoized.get(of) match {
+// assumes that everything in the return value of parents is smaller than its argument
+class PathFinder(parents: Int => Set[Int]) {
+
+  def memoizedUips: mutable.Map[Int, Set[Int]] = mutable.Map()
+
+  def uipsDeprecated(start: (Int) => Int, ends: Set[Int]): Set[Int] = {
+    val (notfound, found) = ends.map(x => (x -> memoizedUips.get(x))).partition(x => x._2.isEmpty)
+    def getUips(end: Int): Set[Int] = {
+      val ps = parents(end)
+      multiUips(start, ps)
+    }
+    var f = found.toMap.map(_._2.get)
+    for ((i, _) <- notfound) {
+      getUips(i)
+    }
+    null
+  }
+
+  // Returns all points which are on every path from the end point
+  // to the starting point. Always contains end.
+  // Will contain the start point IFF the start point is an
+  // ancestor of the end point.
+  def uips(start: Int => Int, end: Int): Set[Int] = {
+    memoizedUips.get(end) match {
       case None =>
-        val ps = parents(of)
-        ps ++ ps.flatMap(x => ancestors(x))
+        val relation = start(end)
+        val ret: Set[Int] = if (relation < 0) {
+          Set()
+        } else if (relation == 0) {
+          Set(end)
+        } else {
+          val ps = parents(end)
+          multiUips(start, ps) + end
+        }
+        memoizedUips(end) = ret
+        ret
       case Some(x) => x
     }
   }
+
+
+  def multiUips(start: Int => Int, ends: Set[Int]): Set[Int] = {
+    val nonEmpty = ends.map(uips(start, _)).filter(!_.isEmpty)
+    val everything = nonEmpty.flatMap(x => x)
+    nonEmpty.foldLeft(everything)((x, y) => x.intersect(y))
+  }
+
+  // todo: actually insert into this
+  val memoizedAncestors: mutable.Map[Int, Set[Int]] = mutable.Map()
+  def ancestors(of: Int): Set[Int] = {
+    memoizedAncestors.get(of) match {
+      case None =>
+        val ps = parents(of)
+        ps ++ ps.flatMap(ancestors(_))
+      case Some(x) => x
+    }
+  }
+
+  // Each list includes start, but none of them include end.
+  // startRelation is supposed to return -1 if arg is before start,
+  // 0 if arg IS start, and 1 if arg is after start.
+  def pathsFrom(startRelation: Int => Int, end: Int): Set[List[Int]] = {
+    val relation = startRelation(end)
+    if (relation == -1) {
+      Set.empty
+    } else if (relation == 0) {
+      Set(List())
+    } else if (relation == 1) {
+      parents(end).flatMap(p => pathsFrom(startRelation, p).map(p +: _))
+    } else {
+      throw new IllegalStateException("startRelation did not return 1, 0, or -1")
+    }
+  }
+
+//  def commonAncestors(points: )
 }
 
 object TestPathFinder {
   def main(args: Array[String]) {
-    /*
-          /-> 3 ------\
-    1 -> 2             -> 6 -> 7
-          \-> 4 -> 5 -/
-     */
     val graph: Map[Int, Set[Int]] = Map(1 -> Set(), 2 -> Set(1), 3 -> Set(2), 4 -> Set(2), 5 -> Set(4), 6 -> Set(3, 5), 7 -> Set(6))
-    val pf = new PathFinder[Int](x => graph(x))
-    assert(Set(1).equals(pf.ancestors(2)))
-    assert(Set(2, 1).equals(pf.ancestors(3)))
-    assert(Set(2, 1).equals(pf.ancestors(4)))
-    assert(Set(4, 2, 1).equals(pf.ancestors(5)))
-    assert(Set(5, 4, 3, 2, 1).equals(pf.ancestors(6)))
-    assert(Set(6, 5, 4, 3, 2, 1).equals(pf.ancestors(7)))
+    val pf: PathFinder = new PathFinder(x => graph(x));
+
+    {
+      /*
+            /-> 3 ------\
+      1 -> 2             -> 6 -> 7
+            \-> 4 -> 5 -/
+       */
+      assert(Set(1).equals(pf.ancestors(2)))
+      assert(Set(2, 1).equals(pf.ancestors(3)))
+      assert(Set(2, 1).equals(pf.ancestors(4)))
+      assert(Set(4, 2, 1).equals(pf.ancestors(5)))
+      assert(Set(5, 4, 3, 2, 1).equals(pf.ancestors(6)))
+      assert(Set(6, 5, 4, 3, 2, 1).equals(pf.ancestors(7)))
+    }
+
+    {
+      def start(i: Int): Int = math.signum(i - 2)
+      def assertUips(parent: Int, uips: Set[Int]) {
+        val expected = uips + parent
+        println("expected: " + expected)
+        val actual = pf.uips(start, parent)
+        println("actual: " + actual)
+        assert(expected.equals(actual))
+      }
+//      assertUips(1, Set())
+      assertUips(2, Set())
+      assertUips(3, Set(2))
+      assertUips(4, Set(2))
+      assertUips(5, Set(2, 4))
+      assertUips(6, Set(2))
+      assertUips(7, Set(2, 6))
+    }
   }
 }
