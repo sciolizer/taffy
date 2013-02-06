@@ -145,7 +145,7 @@ object NQueens {
   case class BackwardSlash(sum: Int) extends Constraint
 
   def main(args: Array[String]) {
-    val size = 6
+    val size = 8
 //    val satisfiers: Set[(Int, Int)] = (for (i <- 0 until size; j <- 0 until size) yield { ((i, j)) }).toSet
     val exact: Set[Constraint] = ((0 until size).map(Row(_)) ++ (0 until size).map(Column(_))).toSet
     val bounded: Set[Constraint] = ((-(size-1) until size).map(ForwardSlash(_)) ++ (0 until (2 * size - 1)).map(BackwardSlash(_))).toSet
