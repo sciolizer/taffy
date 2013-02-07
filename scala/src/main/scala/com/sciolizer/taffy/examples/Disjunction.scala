@@ -1,13 +1,10 @@
-package taffy.examples
+package com.sciolizer.taffy.examples
 
-import taffy._
+import com.sciolizer.taffy._
 import domains.{Literal, Disjunction}
 
 //import examples.Literal
-import taffy.ReadWrite.{Rejects, Is, Accepts}
-import taffy.ReadWrite.Accepts
-import taffy.ReadWrite.Is
-import taffy.ReadWrite.Rejects
+import com.sciolizer.taffy.ReadWrite.{Rejects, Is, Accepts}
 
 /**
  * Created with IntelliJ IDEA.

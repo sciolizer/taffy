@@ -1,4 +1,4 @@
-package taffy
+package com.sciolizer.taffy
 
 import scala.collection.mutable
 
@@ -33,7 +33,7 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
   }
 
   def tracker(assignment: PartialAssignment): ReadWriteTracker[Variables, Variable] = {
-    new ReadWriteTracker[Variables, Variable](initialAssignment, ranger)
+    new ReadWriteTracker[Variables, Variable](initialAssignment ++ assignment, ranger)
   }
 
   /**
@@ -69,7 +69,12 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
    * @return None if the constraint is unsatisfiable, or the deductions (possibly empty) if it is satisfiable.
    */
   def revise(constraint: Constraint, assignment: PartialAssignment): Option[PartialAssignment] = {
-    null
+    val rw = tracker(assignment)
+    if (!domain.revise(rw, constraint)) {
+      None
+    } else {
+      Some[PartialAssignment](Map.empty[VarId, Variables] ++ rw.changes)
+    }
   }
 
   /**

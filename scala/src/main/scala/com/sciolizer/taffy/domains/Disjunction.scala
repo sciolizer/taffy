@@ -1,7 +1,7 @@
-package taffy.domains
+package com.sciolizer.taffy.domains
 
-import taffy.{ReadWrite, Domain}
-import taffy.ReadWrite.{Is, Accepts, Rejects}
+import com.sciolizer.taffy.{ReadWrite, Domain}
+import com.sciolizer.taffy.ReadWrite.{Is, Accepts, Rejects}
 
 /**
  * Created with IntelliJ IDEA.

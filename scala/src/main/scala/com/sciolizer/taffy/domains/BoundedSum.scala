@@ -1,12 +1,7 @@
-package taffy.domains
+package com.sciolizer.taffy.domains
 
 import scala.collection.mutable
-import taffy._
-import domains.Addend
-import domains.Eq
-import domains.Equation
-import domains.GtEq
-import domains.LtEq
+import com.sciolizer.taffy._
 import scala.Some
 import scala.Right
 

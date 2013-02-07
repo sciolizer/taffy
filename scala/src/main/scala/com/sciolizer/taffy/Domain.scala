@@ -1,4 +1,4 @@
-package taffy
+package com.sciolizer.taffy
 
 /**
  * Created with IntelliJ IDEA.

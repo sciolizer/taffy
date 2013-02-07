@@ -1,6 +1,6 @@
-package taffy
+package com.sciolizer.taffy
 
-import taffy.ReadWrite.{Accepts, Is, Rejects, Contains}
+import com.sciolizer.taffy.ReadWrite.{Accepts, Is, Rejects, Contains}
 import collection.mutable
 
 /**

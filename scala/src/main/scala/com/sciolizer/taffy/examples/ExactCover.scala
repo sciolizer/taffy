@@ -1,33 +1,15 @@
-package taffy.examples
+package com.sciolizer.taffy.examples
 
-import taffy._
-import domains.Addend
-import domains.Eq
-import domains.Equation
-import domains.LtEq
+import com.sciolizer.taffy._
 import examples.ExactCover.SolverFactory
-import taffy.domains.Addend
-import taffy.domains.Eq
-import taffy.domains.Equation
-import taffy.domains.LtEq
-import taffy.domains.Addend
-import taffy.domains.Eq
-import taffy.domains.Equation
-import taffy.domains.LtEq
-import taffy.domains._
-import taffy.domains.Addend
-import taffy.domains.Eq
-import taffy.domains.Equation
-import taffy.domains.LtEq
+import com.sciolizer.taffy.domains._
+import com.sciolizer.taffy.domains.Addend
+import com.sciolizer.taffy.domains.Eq
+import com.sciolizer.taffy.domains.Equation
+import com.sciolizer.taffy.domains.LtEq
 import scala.collection.mutable
-import taffy.ReadWrite.{Accepts, Is, Rejects}
 import scala.{None, collection}
 import collection.mutable.ArrayBuffer
-import taffy.ReadWrite.Accepts
-import taffy.ReadWrite.Is
-import taffy.ReadWrite.Rejects
-import scala.Some
-import scala.Some
 import scala.Some
 
 /**

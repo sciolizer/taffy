@@ -1,7 +1,7 @@
-package taffy
+package com.sciolizer.taffy
 
 import collection.mutable.ArrayBuffer
-import domains.{Literal, Disjunction}
+import com.sciolizer.taffy.domains.Literal
 import collection.mutable
 import collection.immutable.Stack
 

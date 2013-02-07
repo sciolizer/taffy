@@ -1,10 +1,8 @@
-package taffy.examples
+package com.sciolizer.taffy.examples
 
-import taffy._
-import domains.{Eq, Addend, Equation, BoundedSum}
-import scala.collection.mutable
-import scala.{collection, Some}
-import scala.collection
+import com.sciolizer.taffy._
+import com.sciolizer.taffy.domains.{Eq, Addend, Equation, BoundedSum}
+import scala.Some
 
 /**
  * Created with IntelliJ IDEA.
