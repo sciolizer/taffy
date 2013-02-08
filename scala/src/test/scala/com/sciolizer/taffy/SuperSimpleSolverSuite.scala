@@ -47,4 +47,8 @@ class SuperSimpleSolverSuite extends FunSuite with BeforeAndAfter {
   test(".rejectors returns all rejecting constraints for arc-consistent assignment") {
     assert(sss.rejectors(Map(0 -> Set(false))) === Set(constraint4))
   }
+
+  test("subsetOf returns true for non-proper subsets") {
+    assert(false)
+  }
 }

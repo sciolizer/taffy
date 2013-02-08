@@ -36,29 +36,37 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
     new ReadWriteTracker[Variables, Variable](initialAssignment ++ assignment, ranger)
   }
 
+  type Implications = Map[VarId, List[(Variables, Constraint)]]
+  case class Propagation(rejector: Option[Constraint], implied: Implications) {
+    lazy val partialAssignment: PartialAssignment = implied.mapValues(_.head._1)
+  }
+
   /**
    * Infers from the given partial assignment as many deductions as possible, without guessing.
    *
    * @param assignment Partial assignment
    * @return
    */
-  def maintainArcConsistency(assignment: PartialAssignment): Option[PartialAssignment] = {
+  def maintainArcConsistency(assignment: PartialAssignment): Propagation = {
+    var overlay: PartialAssignment = assignment
     val constraints: mutable.Set[Constraint] = mutable.Set()
     constraints ++= problem.constraints
-    var ret: PartialAssignment = assignment
+    var implied: Map[VarId, List[(Variables, Constraint)]] = Map.empty.withDefaultValue(List.empty)
     while (!constraints.isEmpty) {
       val constraint: Constraint = constraints.head
       constraints -= constraint
-      revise(constraint, ret) match {
-        case None => return None
+      revise(constraint, overlay) match {
+        case None => return Propagation(Some(constraint), implied)
         case Some(pa) =>
-          for ((vid, _) <- pa) {
+          for ((vid, vals) <- pa) {
             constraints ++= watchers(vid)
+            watchers(vid) += constraint
+            implied = implied.updated(vid, (vals, constraint) +: implied(vid))
           }
-          ret = ret ++ pa
+          overlay = overlay ++ pa
       }
     }
-    Some(ret)
+    Propagation(None, implied)
   }
 
   /**
@@ -73,31 +81,109 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
     if (!domain.revise(rw, constraint)) {
       None
     } else {
-      Some[PartialAssignment](Map.empty[VarId, Variables] ++ rw.changes)
+      Some[PartialAssignment]((Map.empty[VarId, Variables] ++ rw.changes).asInstanceOf[PartialAssignment]) // ugh... why do I keep ending up with these casts?
     }
   }
 
-  /**
-   * Finds ALL conflicting subsets for which no subset of the subset is conflicting.
-   *
-   * @param conflictingAssignment An assignment which violates some constraint. Behavior of this function is
-   *                              undefined if the given partial assignment is arc-consistent.
-   * @return All proper subsets of the given partial assignment that cannot be made smaller, along with the
-   *         constraints that are violated by them. If the given partial assignment is already
-   *         minimal, the empty iterator is returned.
-   */
-  def minimizeConflict(conflictingAssignment: PartialAssignment): Iterator[(Set[VarId], Set[Constraint])] = {
-    conflictingAssignment.iterator.flatMap(x => {
-      val subAssignment = conflictingAssignment - x._1
-      val rejs = rejectors(subAssignment)
-      if (rejs.isEmpty) List.empty[(Set[VarId], Set[Constraint])].iterator else {
-        val subs: Iterator[(Set[VarId], Set[Constraint])] = minimizeConflict(subAssignment)
-        if (subs.isEmpty)
-          Iterator.single[(Set[VarId], Set[Constraint])]((subAssignment.keySet, rejectors(subAssignment)))
-        else
-          subs
+  def minimize(conflictingAssignment: PartialAssignment): Set[Set[VarId]] = new ConflictMinimizer(conflictingAssignment).minimized
+
+  class ConflictMinimizer(conflictingAssignment: PartialAssignment) {
+                                    /*
+    // the key is minimal if the value is Some
+    val isMinimal: mutable.Map[Set[VarId], Option[Implications]] = mutable.Map.empty
+
+    /**
+     * Finds ALL conflicting subsets for which no subset of the subset is conflicting.
+     *
+     * @param conflictingAssignment An assignment which violates some constraint. Behavior of this function is
+     *                              undefined if the given partial assignment is arc-consistent.
+     * @return All proper subsets of the given partial assignment that cannot be made smaller, along with the
+     *         constraints that are violated by them. If the given partial assignment is already
+     *         minimal, the empty iterator is returned. Returns None
+     */
+    def minimizeConflict(ca: PartialAssignment): Iterator[(Set[VarId], Set[Constraint])] = {
+      // todo: this is not right
+      // In order for this to be useful, we need to find whether the assignment is conflicting AFTER
+      // propagation (after arc consistency is maintained). Otherwise, the subsets we pick are
+      // useless, because they already have rejecting constraints. We want to find subsets that
+      // are contradictory but which no current constraint rejects.
+
+      // Also, I should add some memoization: removing the 1st and then the 2nd is the same as removing
+      // the 2nd and the 1st, but the current implementation generates both cases.
+
+      conflictingAssignment.iterator.flatMap(x => {
+        val subAssignment = conflictingAssignment - x._1
+        isMinimal.get(subAssignment.keySet) match {
+          case Some(_) => Iterator.empty
+          case None =>
+            val propagation: Propagation = maintainArcConsistency(subAssignment)
+            propagation.rejector match {
+              case None =>
+                isMinimal(subAssignment.keySet) = None
+                Iterator.empty
+              case Some(rej) =>
+                isMinimal(subAssignment.keySet) = Some(propagation)
+            }
+            val rejs = rejectors(subAssignment)
+            if (rejs.isEmpty) List.empty[(Set[VarId], Set[Constraint])].iterator else {
+              val subs: Iterator[(Set[VarId], Set[Constraint])] = minimizeConflict(subAssignment)
+              if (subs.isEmpty)
+                Iterator.single[(Set[VarId], Set[Constraint])]((subAssignment.keySet, rejs))
+              else
+                subs
+            }
+        }
+      })
+    }
+
+    // shrinkable ++ fixed is assumed to be a conflicting assignment
+    def minimal(shrinkable: List[VarId], fixed: List[VarId]): Iterator[List[VarId]] = {
+      if (shrinkable.isEmpty) {
+        Iterator.single(fixed)
+      } else {
+        val h = shrinkable.head
+        val t = shrinkable.tail
+
       }
-    })
+    }
+                             */
+    abstract class AcceptReject
+    case class Accept() extends AcceptReject
+    case class NonMinimalReject() extends AcceptReject
+    case class MinimalReject() extends AcceptReject
+
+    val accepting: mutable.Set[Set[VarId]] = mutable.Set.empty
+    val rejecting: mutable.Set[Set[VarId]] = mutable.Set.empty
+
+    def rejects(vars: Set[VarId]): AcceptReject = {
+      // if a proper subset rejects, then so do we
+      if (rejecting.exists(x => x.subsetOf(vars) && !x.equals(vars))) return NonMinimalReject()
+      if (rejecting.contains(vars)) return MinimalReject()
+      // if a superset accepts, then so do we
+      if (accepting.exists(x => vars.subsetOf(x))) return Accept()
+      // otherwise, compute
+      val propagation = maintainArcConsistency(conflictingAssignment.filterKeys(vars.contains(_)))
+      propagation.rejector match {
+        case None =>
+          accepting += vars
+          Accept()
+        case Some(_) =>
+          rejecting += vars
+          val minimal = vars.forall(v => rejects(vars - v) match {
+            case Accept() => true
+            case _ => false
+          })
+          if (minimal) MinimalReject() else NonMinimalReject()
+      }
+    }
+
+    lazy val minimized: Set[Set[VarId]] = {
+      rejects(conflictingAssignment.keySet) // populate accepting and rejecting
+      rejecting.filter(x => rejects(x) match {
+        case MinimalReject() => true
+        case _ => false
+      })
+    }
   }
 
   /**
