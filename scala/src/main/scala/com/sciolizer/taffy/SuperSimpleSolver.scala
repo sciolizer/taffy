@@ -1,6 +1,7 @@
 package com.sciolizer.taffy
 
 import scala.collection.mutable
+import com.sciolizer.taffy.SuperSimpleSolver.Propagation
 
 /**
  * Algorithm taken directly from page 215 of Artifical Intelligence: A Modern approach.
@@ -19,6 +20,7 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
 
   type Assignment = Vector[Variable]
   type PartialAssignment = Map[VarId, Variables]
+  type TPropagation = Propagation[Constraint, Variables]
 
   val initialAssignment: PartialAssignment = (0 until problem.numVariables).map(i => (i -> problem.candidateValues)).toMap
 
@@ -29,7 +31,12 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
     problem.constraints.foreach(watch(_, initialAssignment))
 
     def watchers(vid: VarId): Set[Constraint] = {
-      Set.empty ++ registered(vid)
+      registered.get(vid) match {
+        case None =>
+          Set.empty
+        case Some(x) =>
+          Set.empty ++ x
+      }
     }
 
     def watch(constraint: Constraint, assignment: PartialAssignment) {
@@ -50,18 +57,13 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
     new ReadWriteTracker[Variables, Variable](initialAssignment ++ assignment, ranger)
   }
 
-  type Implications = Map[VarId, List[(Variables, Constraint)]]
-  case class Propagation(rejector: Option[Constraint], implied: Implications) {
-    lazy val partialAssignment: PartialAssignment = implied.mapValues(_.head._1)
-  }
-
   /**
    * Infers from the given partial assignment as many deductions as possible, without guessing.
    *
    * @param assignment Partial assignment
    * @return
    */
-  def maintainArcConsistency(assignment: PartialAssignment): Propagation = {
+  def maintainArcConsistency(assignment: PartialAssignment): TPropagation = {
     val watchers = new Watchers(initialAssignment ++ assignment)
     var overlay: PartialAssignment = assignment
     val constraints: mutable.Set[Constraint] = mutable.Set()
@@ -72,7 +74,7 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
       constraints -= constraint
       revise(constraint, overlay) match {
         case None =>
-          return Propagation(Some(constraint), implied)
+          return Propagation[Constraint, Variables](Some[Constraint](constraint), implied)
         case Some(pa) =>
           overlay = overlay ++ pa
           for ((vid, vals) <- pa) {
@@ -171,10 +173,10 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
     case class NonMinimalReject() extends AcceptReject
     case class MinimalReject() extends AcceptReject
 
-    val accepting: mutable.Set[Set[VarId]] = mutable.Set.empty
-    val rejecting: mutable.Set[Set[VarId]] = mutable.Set.empty
+    private val accepting: mutable.Set[Set[VarId]] = mutable.Set.empty
+    private val rejecting: mutable.Set[Set[VarId]] = mutable.Set.empty
 
-    def rejects(vars: Set[VarId]): AcceptReject = {
+    private def rejects(vars: Set[VarId]): AcceptReject = {
       // if a proper subset rejects, then so do we
       if (rejecting.exists(x => x.subsetOf(vars) && !x.equals(vars))) return NonMinimalReject()
       if (rejecting.contains(vars)) return MinimalReject()
@@ -196,8 +198,22 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
       }
     }
 
+    private val considered: mutable.Set[Set[VarId]] = mutable.Set.empty
+
+    private def consider(vars: Set[VarId]) {
+      if (considered.contains(vars)) return
+      rejects(vars) match {
+        case NonMinimalReject() =>
+          for (vid <- vars) {
+            consider(vars - vid)
+          }
+        case MinimalReject() =>
+        case Accept() =>
+      }
+    }
+
     lazy val minimized: Set[Set[VarId]] = {
-      rejects(conflictingAssignment.keySet) // populate accepting and rejecting
+      consider(conflictingAssignment.keySet) // populate accepting and rejecting
       (Set.empty ++ rejecting).filter(x => rejects(x) match {
         case MinimalReject() => true
         case _ => false
@@ -252,6 +268,14 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
 
   }
   */
+}
+object SuperSimpleSolver {
+  type VarId = Int
+  type Implications[Constraint, Variables] = Map[VarId, List[(Variables, Constraint)]]
+  type PartialAssignment[Variables] = Map[VarId, Variables]
+  case class Propagation[Constraint, Variables](rejector: Option[Constraint], implied: Implications[Constraint, Variables]) {
+    lazy val partialAssignment: PartialAssignment[Variables] = implied.mapValues(_.head._1)
+  }
 }
 
 class ReadWriteTracker[Variables, Variable](initial: Map[Int, Variables], r: Ranger[Variables, Variable]) extends ReadWriteMock(initial: Map[Int, Variables], r: Ranger[Variables, Variable]) {

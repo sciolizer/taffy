@@ -3,6 +3,7 @@ package com.sciolizer.taffy
 import com.sciolizer.taffy.domains.{Literal, Disjunction}
 import org.scalatest.FunSuite
 import org.scalatest.BeforeAndAfter
+import com.sciolizer.taffy.SuperSimpleSolver.Propagation
 
 /**
  * Created with IntelliJ IDEA.
@@ -40,7 +41,7 @@ class SuperSimpleSolverSuite extends FunSuite with BeforeAndAfter {
     assert(sss.revise(constraint4, Map.empty) === Some(Map(0 -> Set(true))))
   }
 
-  test(".maintainArcConsistency should return deduce solution") {
+  test(".maintainArcConsistency should deduce solution") {
     // Same as problem above, but constraint 4 is removed.
     val problem = new Problem[List[Literal], Set[Boolean], Boolean](
       3,
@@ -54,5 +55,16 @@ class SuperSimpleSolverSuite extends FunSuite with BeforeAndAfter {
   test("subsetOf returns true for non-proper subsets") {
     val s = Set(3)
     assert(s.subsetOf(s))
+  }
+
+  test("minimize") {
+    val minimized = sss.minimize(Map(0 -> Set(false), 1 -> Set(false)))
+    assert(minimized === Set(Set(0), Set(1)))
+  }
+
+  test("unapply") {
+    Propagation(None, Map.empty) match {
+      case Propagation(_, _) => true
+    }
   }
 }
