@@ -42,7 +42,7 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
     def watch(constraint: Constraint, assignment: PartialAssignment) {
       val rw = tracker(assignment)
       domain.revise(rw, constraint)
-      for (variable <- rw.vars) {
+      for (variable <- rw.reads) {
         registered.get(variable) match {
           case None =>
             registered(variable) = mutable.Set(constraint)
@@ -109,65 +109,7 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
   def minimize(conflictingAssignment: PartialAssignment): Set[Set[VarId]] = new ConflictMinimizer(conflictingAssignment).minimized
 
   class ConflictMinimizer(conflictingAssignment: PartialAssignment) {
-                                    /*
-    // the key is minimal if the value is Some
-    val isMinimal: mutable.Map[Set[VarId], Option[Implications]] = mutable.Map.empty
 
-    /**
-     * Finds ALL conflicting subsets for which no subset of the subset is conflicting.
-     *
-     * @param conflictingAssignment An assignment which violates some constraint. Behavior of this function is
-     *                              undefined if the given partial assignment is arc-consistent.
-     * @return All proper subsets of the given partial assignment that cannot be made smaller, along with the
-     *         constraints that are violated by them. If the given partial assignment is already
-     *         minimal, the empty iterator is returned. Returns None
-     */
-    def minimizeConflict(ca: PartialAssignment): Iterator[(Set[VarId], Set[Constraint])] = {
-      // todo: this is not right
-      // In order for this to be useful, we need to find whether the assignment is conflicting AFTER
-      // propagation (after arc consistency is maintained). Otherwise, the subsets we pick are
-      // useless, because they already have rejecting constraints. We want to find subsets that
-      // are contradictory but which no current constraint rejects.
-
-      // Also, I should add some memoization: removing the 1st and then the 2nd is the same as removing
-      // the 2nd and the 1st, but the current implementation generates both cases.
-
-      conflictingAssignment.iterator.flatMap(x => {
-        val subAssignment = conflictingAssignment - x._1
-        isMinimal.get(subAssignment.keySet) match {
-          case Some(_) => Iterator.empty
-          case None =>
-            val propagation: Propagation = maintainArcConsistency(subAssignment)
-            propagation.rejector match {
-              case None =>
-                isMinimal(subAssignment.keySet) = None
-                Iterator.empty
-              case Some(rej) =>
-                isMinimal(subAssignment.keySet) = Some(propagation)
-            }
-            val rejs = rejectors(subAssignment)
-            if (rejs.isEmpty) List.empty[(Set[VarId], Set[Constraint])].iterator else {
-              val subs: Iterator[(Set[VarId], Set[Constraint])] = minimizeConflict(subAssignment)
-              if (subs.isEmpty)
-                Iterator.single[(Set[VarId], Set[Constraint])]((subAssignment.keySet, rejs))
-              else
-                subs
-            }
-        }
-      })
-    }
-
-    // shrinkable ++ fixed is assumed to be a conflicting assignment
-    def minimal(shrinkable: List[VarId], fixed: List[VarId]): Iterator[List[VarId]] = {
-      if (shrinkable.isEmpty) {
-        Iterator.single(fixed)
-      } else {
-        val h = shrinkable.head
-        val t = shrinkable.tail
-
-      }
-    }
-                             */
     abstract class AcceptReject
     case class Accept() extends AcceptReject
     case class NonMinimalReject() extends AcceptReject
@@ -220,54 +162,61 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
       })
     }
   }
-      /*
-  /**
-   * Returns all constraints violated by the given assignment.
-   *
-   * @param assignment A partial assignment.
-   * @return Set of constraints which reject the assignment, or the empty set if the assignment is arc-consistent.
-   */
-  def rejectors(assignment: PartialAssignment): Set[Constraint] = {
-    problem.constraints.filter(revise(_, assignment).isDefined)
-  }
-        */
-  /*
-  def backtrackingSearch(assignment: Assignment): Option[Map[VarId, Variable]] = {
-    if (isComplete(assignment)) {
-      return Some(assignment)
+
+  def backtrackingSearch(assignment: PartialAssignment): Option[Map[VarId, Variable]] = {
+    completeAssignment(assignment) match {
+      case Some(a) => return Some(a)
     }
     val variable: VarId = selectUnassignedVariable(assignment)
     for (value <- orderDomainValues(variable, assignment)) {
-      val newAssignment = assignment.updated(variable, value)
-      inferences(variable, value) match {
-        case None =>
-        case Some(overlay) =>
-          val newNewAssignment = newAssignment ++ overlay
+      val newAssignment: PartialAssignment = assignment.updated(variable, ranger.toSingleton(value))
+      val propagation = maintainArcConsistency(newAssignment)
+      propagation match {
+        case Propagation(None, implied) =>
+          val newNewAssignment: PartialAssignment = newAssignment ++ propagation.partialAssignment
           backtrackingSearch(newNewAssignment) match {
             case None =>
             case Some(a) => return Some(a)
           }
+        case Propagation(Some(c), implied) =>
       }
     }
     None
   }
 
-  def isComplete(assignment: Assignment): Boolean = {
-
+  def completeAssignment(assignment: PartialAssignment): Option[Map[VarId, Variable]] = {
+    case class NotComplete() extends Exception
+    try {
+      Some((for ((vid, values) <- assignment) yield {
+        if (ranger.isSingleton(values)) {
+          (vid, ranger.fromSingleton(values))
+        } else {
+          throw new NotComplete()
+        }
+      }).toMap)
+    } catch {
+      case NotComplete() => None
+    }
   }
 
-  def selectUnassignedVariable(assignment: Assignment): VarId = {
+  private val allVariables: Set[VarId] = (0 until problem.numVariables).toSet
 
+  def selectUnassignedVariable(assignment: PartialAssignment): VarId = {
+    (allVariables -- assignment.keySet).head
   }
 
-  def orderDomainValues(variable: VarId, assignment: Assignment): Iterator[Variable] = {
-
+  def orderDomainValues(variable: VarId, assignment: PartialAssignment): Iterator[Variable] = {
+    var candidates = assignment.getOrElse(variable, problem.candidateValues)
+    Iterator.continually {
+      if (ranger.isEmpty(candidates)) {
+        None
+      } else {
+        val ret = ranger.pick(candidates)
+        candidates = ranger.subtraction(candidates, ranger.toSingleton(ret))
+        Some(ret)
+      }
+    }.takeWhile(_.isDefined).map(_.get)
   }
-
-  def inferences(variable: VarId, value: Variable): Option[Map[VarId, Variable]] = {
-
-  }
-  */
 }
 object SuperSimpleSolver {
   type VarId = Int
@@ -279,7 +228,7 @@ object SuperSimpleSolver {
 }
 
 class ReadWriteTracker[Variables, Variable](initial: Map[Int, Variables], r: Ranger[Variables, Variable]) extends ReadWriteMock(initial: Map[Int, Variables], r: Ranger[Variables, Variable]) {
-  var vars: Set[VarId] = Set.empty
+  private var vars: Set[VarId] = Set.empty
   def reads = vars
   override def readVar(v: VarId): Variables = {
     vars += v
