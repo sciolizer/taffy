@@ -57,6 +57,20 @@ class SuperSimpleSolverSuite extends FunSuite with BeforeAndAfter {
     assert(s.subsetOf(s))
   }
 
+  test("Order domain values") {
+    assert(sss.orderDomainValues(0, Map.empty).toSet === Set(true, false))
+  }
+
+  test("Complete assignment") {
+    assert(sss.completeAssignment(Map(0 -> Set(true))) === None)
+    assert(sss.completeAssignment(Map(0 -> Set(false), 1 -> Set(true), 2 -> Set(false))) === Some(Map(0 -> false, 1 -> true, 2 -> false)))
+  }
+
+  test("Backtracking search") {
+    assert(sss.backtrackingSearch(Map(0 -> Set(false))) === None)
+    assert(sss.backtrackingSearch(Map.empty) === Some(Map(0 -> true, 1 -> true, 2 -> true)))
+  }
+
   test("minimize") {
     val minimized = sss.minimize(Map(0 -> Set(false), 1 -> Set(false)))
     assert(minimized === Set(Set(0), Set(1)))
@@ -64,7 +78,7 @@ class SuperSimpleSolverSuite extends FunSuite with BeforeAndAfter {
 
   test("unapply") {
     Propagation(None, Map.empty) match {
-      case Propagation(_, _) => true
+      case Propagation(_, _) =>
     }
   }
 }

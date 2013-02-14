@@ -166,6 +166,7 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
   def backtrackingSearch(assignment: PartialAssignment): Option[Map[VarId, Variable]] = {
     completeAssignment(assignment) match {
       case Some(a) => return Some(a)
+      case None =>
     }
     val variable: VarId = selectUnassignedVariable(assignment)
     for (value <- orderDomainValues(variable, assignment)) {
@@ -185,6 +186,7 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
   }
 
   def completeAssignment(assignment: PartialAssignment): Option[Map[VarId, Variable]] = {
+    if (assignment.keySet != allVariables) return None
     case class NotComplete() extends Exception
     try {
       Some((for ((vid, values) <- assignment) yield {
