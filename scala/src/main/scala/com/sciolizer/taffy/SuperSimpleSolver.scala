@@ -22,6 +22,8 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
   type PartialAssignment = Map[VarId, Variables]
   type TPropagation = Propagation[Constraint, Variables]
 
+  private val nogoods: mutable.Set[NoGood[Variables]] = mutable.Set.empty
+
   class Watchers(initialAssignment: PartialAssignment) {
 
     private var registered: mutable.Map[VarId, mutable.Set[Constraint]] = mutable.Map()
@@ -170,14 +172,18 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
     for (value <- orderDomainValues(variable, assignment)) {
       val newAssignment: PartialAssignment = assignment.updated(variable, ranger.toSingleton(value))
       val propagation = maintainArcConsistency(newAssignment)
+      val newNewAssignment: PartialAssignment = newAssignment ++ propagation.partialAssignment
       propagation match {
         case Propagation(None, implied) =>
-          val newNewAssignment: PartialAssignment = newAssignment ++ propagation.partialAssignment
           backtrackingSearch(newNewAssignment) match {
             case None =>
             case Some(a) => return Some(a)
           }
         case Propagation(Some(c), implied) =>
+          for (minimalConflict <- minimize(newNewAssignment)) {
+            // todo: make test for this
+            nogoods += new NoGood(newNewAssignment.filterKeys(minimalConflict.contains(_)))
+          }
       }
     }
     None
