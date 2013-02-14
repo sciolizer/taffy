@@ -199,7 +199,21 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
   }
 
   def selectUnassignedVariable(assignment: PartialAssignment): VarId = {
-    assignment.find(x => !ranger.isSingleton(x._2)).get._1
+    var min = -1
+    var minSize = Int.MaxValue
+    for ((vid, vars) <- assignment) {
+      val size = ranger.size(vars)
+      if (size == 2) {
+        return vid
+      } else if (size < minSize && size > 1) {
+        min = vid
+        minSize = size
+      } else if (size == 0) {
+        throw new IllegalArgumentException("Assignment is conflicting.")
+      }
+    }
+    if (min == -1) throw new IllegalArgumentException("Assignment is complete.")
+    min
   }
 
   def orderDomainValues(variable: VarId, assignment: PartialAssignment): Iterator[Variable] = {

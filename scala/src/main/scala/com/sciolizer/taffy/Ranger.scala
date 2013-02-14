@@ -7,6 +7,13 @@ package com.sciolizer.taffy
  * Time: 11:12 AM
  */
 trait Ranger[Values, Value] {
+  def size(values: Values): Int = {
+    // This implementation is linear, so it's definitely
+    // recommended that this method be overridden.
+    if (isEmpty(values)) return 0
+    1 + size(subtraction(values, toSingleton(pick(values))))
+  }
+
   // value returned should guarantee that
   //   values - value does not raise an error
   def pick(values: Values) : Value
