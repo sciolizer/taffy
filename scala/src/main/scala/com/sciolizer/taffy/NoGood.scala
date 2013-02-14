@@ -51,6 +51,10 @@ class NoGood[Variables](val forbidden: Map[Int, Variables]) {
   override def toString: String = {
     forbidden.toString()
   }
+
+  override def hashCode(): Int = forbidden.hashCode()
+
+  override def equals(obj: Any): Boolean = forbidden.equals(obj.asInstanceOf[NoGood[Variables]].forbidden)
 }
 
 object TestNogood {

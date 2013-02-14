@@ -3,7 +3,6 @@ package com.sciolizer.taffy
 import com.sciolizer.taffy.domains.{Literal, Disjunction}
 import org.scalatest.FunSuite
 import org.scalatest.BeforeAndAfter
-import com.sciolizer.taffy.SuperSimpleSolver.Propagation
 
 /**
  * Created with IntelliJ IDEA.
@@ -31,15 +30,15 @@ class SuperSimpleSolverSuite extends FunSuite with BeforeAndAfter {
     assert(prop.rejector === Some(constraint4))
   }
   test(".revise should return None for unsatisfiable constraint") {
-    assert(sss.revise(constraint4, Map(0 -> Set(false))) === None)
+    assert(sss.revise(Right(constraint4), Map(0 -> Set(false))) === None)
   }
 
   test(".revise should return empty for satisfiable but non-deducible constraint") {
-    assert(sss.revise(constraint2, initialAssignment) === Some(Map.empty))
+    assert(sss.revise(Right(constraint2), initialAssignment) === Some(Map.empty))
   }
 
   test(".revise should return deduction for deducible constraint") {
-    assert(sss.revise(constraint4, initialAssignment) === Some(Map(0 -> Set(true))))
+    assert(sss.revise(Right(constraint4), initialAssignment) === Some(Map(0 -> Set(true))))
   }
 
   test(".maintainArcConsistency should deduce solution") {
@@ -70,5 +69,10 @@ class SuperSimpleSolverSuite extends FunSuite with BeforeAndAfter {
   test("minimize") {
     val minimized = sss.minimize(initialAssignment ++ Map(0 -> Set(false), 1 -> Set(false)))
     assert(minimized === Set(Set(0), Set(1)))
+  }
+
+  test("nogood generation") {
+    assert(sss.backtrackingSearch(initialAssignment ++ Map(0 -> Set(false), 1 -> Set(false))) === None)
+    assert(sss.noGoods === Set(new NoGood(Map(0 -> Set(false))), new NoGood(Map(1 -> Set(false)))))
   }
 }

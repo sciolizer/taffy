@@ -22,15 +22,17 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
   type PartialAssignment = Map[VarId, Variables]
   type TPropagation = Propagation[Constraint, Variables]
 
-  private val nogoods: mutable.Set[NoGood[Variables]] = mutable.Set.empty
+  private val _noGoods: mutable.Set[NoGood[Variables]] = mutable.Set.empty
+  def noGoods: Set[NoGood[Variables]] = Set.empty ++ _noGoods
 
   class Watchers(initialAssignment: PartialAssignment) {
 
-    private var registered: mutable.Map[VarId, mutable.Set[Constraint]] = mutable.Map()
+    private var registered: mutable.Map[VarId, mutable.Set[MixedConstraint]] = mutable.Map()
 
-    problem.constraints.foreach(watch(_, initialAssignment))
+    problem.constraints.foreach(x => watch(Right(x), initialAssignment))
+    _noGoods.foreach(x => watch(Left(x), initialAssignment))
 
-    def watchers(vid: VarId): Set[Constraint] = {
+    def watchers(vid: VarId): Set[MixedConstraint] = {
       registered.get(vid) match {
         case None =>
           Set.empty
@@ -39,9 +41,9 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
       }
     }
 
-    def watch(constraint: Constraint, assignment: PartialAssignment) {
+    def watch(constraint: MixedConstraint, assignment: PartialAssignment) {
       val rw = tracker(assignment)
-      domain.revise(rw, constraint)
+      satisfiable(constraint, rw)
       for (variable <- rw.reads) {
         registered.get(variable) match {
           case None =>
@@ -66,15 +68,15 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
   def maintainArcConsistency(assignment: PartialAssignment): TPropagation = {
     val watchers = new Watchers(assignment)
     var overlay: PartialAssignment = assignment
-    val constraints: mutable.Set[Constraint] = mutable.Set()
-    constraints ++= problem.constraints
-    var implied: Map[VarId, List[(Variables, Constraint)]] = Map.empty.withDefaultValue(List.empty)
+    val constraints: mutable.Set[MixedConstraint] = mutable.Set()
+    constraints ++= problem.constraints.map(Right(_)) ++ _noGoods.map(Left(_))
+//    var implied: Map[VarId, List[(Variables, Constraint)]] = Map.empty
     while (!constraints.isEmpty) {
-      val constraint: Constraint = constraints.head
+      val constraint = constraints.head
       constraints -= constraint
       revise(constraint, overlay) match {
         case None =>
-          return Propagation[Constraint, Variables](Some[Constraint](constraint), implied)
+          return Propagation[Constraint, Variables](Some[MixedConstraint](constraint), assignment ++ overlay)
         case Some(pa) =>
           overlay = overlay ++ pa
           for ((vid, vals) <- pa) {
@@ -83,11 +85,11 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
             // With new assignments, constraint might read from more variables than it did before, so we need
             // to re-watch it.
             watchers.watch(constraint, assignment ++ overlay)
-            implied = implied.updated(vid, (vals, constraint) +: implied(vid))
+//            implied = implied.updated(vid, (vals, constraint) +: implied(vid))
           }
       }
     }
-    Propagation(None, implied)
+    Propagation(None, assignment ++ overlay)
   }
 
   /**
@@ -97,12 +99,21 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
    * @param assignment Current assignment
    * @return None if the constraint is unsatisfiable, or the deductions (possibly empty) if it is satisfiable.
    */
-  def revise(constraint: Constraint, assignment: PartialAssignment): Option[PartialAssignment] = {
+  def revise(constraint: MixedConstraint, assignment: PartialAssignment): Option[PartialAssignment] = {
     val rw = tracker(assignment)
-    if (!domain.revise(rw, constraint)) {
+    if (!satisfiable(constraint, rw)) {
       None
     } else {
       Some[PartialAssignment]((Map.empty[VarId, Variables] ++ rw.changes).asInstanceOf[PartialAssignment]) // ugh... why do I keep ending up with these casts?
+    }
+  }
+
+  private def satisfiable(constraint: MixedConstraint, rw: ReadWrite[Variables, Variable]): Boolean = {
+    constraint match {
+      case Left(noGood) =>
+        noGood.revise(rw, ranger)
+      case Right(c) =>
+        domain.revise(rw, c)
     }
   }
 
@@ -181,8 +192,7 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
           }
         case Propagation(Some(c), implied) =>
           for (minimalConflict <- minimize(newNewAssignment)) {
-            // todo: make test for this
-            nogoods += new NoGood(newNewAssignment.filterKeys(minimalConflict.contains(_)))
+            _noGoods += new NoGood(newNewAssignment.filterKeys(minimalConflict.contains(_)))
           }
       }
     }
@@ -239,9 +249,7 @@ object SuperSimpleSolver {
   type VarId = Int
   type Implications[Constraint, Variables] = Map[VarId, List[(Variables, Constraint)]]
   type PartialAssignment[Variables] = Map[VarId, Variables]
-  case class Propagation[Constraint, Variables](rejector: Option[Constraint], implied: Implications[Constraint, Variables]) {
-    lazy val partialAssignment: PartialAssignment[Variables] = implied.mapValues(_.head._1)
-  }
+  case class Propagation[Constraint, Variables](rejector: Option[Either[NoGood[Variables], Constraint]], partialAssignment: PartialAssignment[Variables])
 }
 
 class ReadWriteTracker[Variables, Variable](initial: Map[Int, Variables], r: Ranger[Variables, Variable]) extends ReadWriteMock(initial: Map[Int, Variables], r: Ranger[Variables, Variable]) {
