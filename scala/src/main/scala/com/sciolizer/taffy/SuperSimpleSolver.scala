@@ -22,8 +22,6 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
   type PartialAssignment = Map[VarId, Variables]
   type TPropagation = Propagation[Constraint, Variables]
 
-  val initialAssignment: PartialAssignment = (0 until problem.numVariables).map(i => (i -> problem.candidateValues)).toMap
-
   class Watchers(initialAssignment: PartialAssignment) {
 
     private var registered: mutable.Map[VarId, mutable.Set[Constraint]] = mutable.Map()
@@ -54,7 +52,7 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
   }
 
   def tracker(assignment: PartialAssignment): ReadWriteTracker[Variables, Variable] = {
-    new ReadWriteTracker[Variables, Variable](initialAssignment ++ assignment, ranger)
+    new ReadWriteTracker[Variables, Variable](assignment, ranger)
   }
 
   /**
@@ -64,7 +62,7 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
    * @return
    */
   def maintainArcConsistency(assignment: PartialAssignment): TPropagation = {
-    val watchers = new Watchers(initialAssignment ++ assignment)
+    val watchers = new Watchers(assignment)
     var overlay: PartialAssignment = assignment
     val constraints: mutable.Set[Constraint] = mutable.Set()
     constraints ++= problem.constraints
@@ -125,7 +123,7 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
       // if a superset accepts, then so do we
       if (accepting.exists(x => vars.subsetOf(x))) return Accept()
       // otherwise, compute
-      val propagation = maintainArcConsistency(conflictingAssignment.filterKeys(vars.contains(_)))
+      val propagation = maintainArcConsistency(conflictingAssignment ++ (conflictingAssignment.keySet -- vars).map(vid => (vid -> problem.candidateValues)))
       propagation.rejector match {
         case None =>
           accepting += vars
@@ -186,7 +184,6 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
   }
 
   def completeAssignment(assignment: PartialAssignment): Option[Map[VarId, Variable]] = {
-    if (assignment.keySet != allVariables) return None
     case class NotComplete() extends Exception
     try {
       Some((for ((vid, values) <- assignment) yield {
@@ -201,10 +198,8 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
     }
   }
 
-  private val allVariables: Set[VarId] = (0 until problem.numVariables).toSet
-
   def selectUnassignedVariable(assignment: PartialAssignment): VarId = {
-    (allVariables -- assignment.keySet).head
+    assignment.find(x => !ranger.isSingleton(x._2)).get._1
   }
 
   def orderDomainValues(variable: VarId, assignment: PartialAssignment): Iterator[Variable] = {

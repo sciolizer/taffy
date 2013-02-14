@@ -24,9 +24,10 @@ class SuperSimpleSolverSuite extends FunSuite with BeforeAndAfter {
     Set(constraint0, constraint1, constraint2, constraint3, constraint4),
     Set(true, false))
   val sss = new SuperSimpleSolver[List[Literal], Set[Boolean], Boolean](new Disjunction[Set[Boolean]](), problem, new SetRanger())
+  val initialAssignment: SuperSimpleSolver.PartialAssignment[Set[Boolean]] = (0 until 3).map(vid => vid -> problem.candidateValues).toMap
 
   test(".maintainArcConsistenty should fail on inconsistent assignment") {
-    val prop = sss.maintainArcConsistency(Map(0 -> Set()))
+    val prop = sss.maintainArcConsistency(initialAssignment ++ Map[Int, Set[Boolean]](0 -> Set()))
     assert(prop.rejector === Some(constraint4))
   }
   test(".revise should return None for unsatisfiable constraint") {
@@ -34,11 +35,11 @@ class SuperSimpleSolverSuite extends FunSuite with BeforeAndAfter {
   }
 
   test(".revise should return empty for satisfiable but non-deducible constraint") {
-    assert(sss.revise(constraint2, Map.empty) === Some(Map.empty))
+    assert(sss.revise(constraint2, initialAssignment) === Some(Map.empty))
   }
 
   test(".revise should return deduction for deducible constraint") {
-    assert(sss.revise(constraint4, Map.empty) === Some(Map(0 -> Set(true))))
+    assert(sss.revise(constraint4, initialAssignment) === Some(Map(0 -> Set(true))))
   }
 
   test(".maintainArcConsistency should deduce solution") {
@@ -48,37 +49,26 @@ class SuperSimpleSolverSuite extends FunSuite with BeforeAndAfter {
       Set(constraint0, constraint1, constraint2, constraint3),
       Set(true, false))
     val sss = new SuperSimpleSolver[List[Literal], Set[Boolean], Boolean](new Disjunction[Set[Boolean]](), problem, new SetRanger())
-    val propagation = sss.maintainArcConsistency(Map(0 -> Set(true)))
+    val propagation = sss.maintainArcConsistency(initialAssignment ++ Map(0 -> Set(true)))
     assert(propagation.partialAssignment === Map(1 -> Set(true), 2 -> Set(true)))
   }
 
-  test("subsetOf returns true for non-proper subsets") {
-    val s = Set(3)
-    assert(s.subsetOf(s))
-  }
-
   test("Order domain values") {
-    assert(sss.orderDomainValues(0, Map.empty).toSet === Set(true, false))
+    assert(sss.orderDomainValues(0, initialAssignment).toSet === Set(true, false))
   }
 
   test("Complete assignment") {
-    assert(sss.completeAssignment(Map(0 -> Set(true))) === None)
+    assert(sss.completeAssignment(initialAssignment ++ Map(0 -> Set(true))) === None)
     assert(sss.completeAssignment(Map(0 -> Set(false), 1 -> Set(true), 2 -> Set(false))) === Some(Map(0 -> false, 1 -> true, 2 -> false)))
   }
 
   test("Backtracking search") {
-    assert(sss.backtrackingSearch(Map(0 -> Set(false))) === None)
-    assert(sss.backtrackingSearch(Map.empty) === Some(Map(0 -> true, 1 -> true, 2 -> true)))
+    assert(sss.backtrackingSearch(initialAssignment ++ Map(0 -> Set(false))) === None)
+    assert(sss.backtrackingSearch(initialAssignment) === Some(Map(0 -> true, 1 -> true, 2 -> true)))
   }
 
   test("minimize") {
-    val minimized = sss.minimize(Map(0 -> Set(false), 1 -> Set(false)))
+    val minimized = sss.minimize(initialAssignment ++ Map(0 -> Set(false), 1 -> Set(false)))
     assert(minimized === Set(Set(0), Set(1)))
-  }
-
-  test("unapply") {
-    Propagation(None, Map.empty) match {
-      case Propagation(_, _) =>
-    }
   }
 }
