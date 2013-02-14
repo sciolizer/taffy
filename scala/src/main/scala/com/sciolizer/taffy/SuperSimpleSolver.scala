@@ -166,7 +166,9 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
     }
 
     lazy val minimized: Set[Set[VarId]] = {
+      println("considering: " + conflictingAssignment.keySet)
       consider(conflictingAssignment.keySet) // populate accepting and rejecting
+      println("considered")
       (Set.empty ++ rejecting).filter(x => rejects(x) match {
         case MinimalReject() => true
         case _ => false

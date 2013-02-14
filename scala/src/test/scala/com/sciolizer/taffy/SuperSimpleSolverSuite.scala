@@ -71,7 +71,7 @@ class SuperSimpleSolverSuite extends FunSuite with BeforeAndAfter {
     assert(minimized === Set(Set(0), Set(1)))
   }
 
-  test("nogood generation") {
+  test("noGood generation") {
     assert(sss.backtrackingSearch(initialAssignment ++ Map(0 -> Set(false), 1 -> Set(false))) === None)
     // Even though var 2 ('c' in the examples above) is not "given" as an argument to backtrackingSearch,
     // propagation (maintainArcConsistency) will add it to the conflictingAssignment, and so it will

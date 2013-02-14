@@ -42,7 +42,7 @@ object ExactCover {
     def make(domain: BoundedSum,
              problem: Problem[Equation, Set[Int], Int],
              ranger: Ranger[Set[Int], Int],
-             satisfierIndex: Array[Satisfier]): Solver[Equation, Set[Int], Int]
+             satisfierIndex: Array[Satisfier]): SuperSimpleSolver[Equation, Set[Int], Int]
   }
 
   def defaultSolverFactory[Satisfier](): SolverFactory[Satisfier] = {
@@ -50,8 +50,8 @@ object ExactCover {
       def make(domain: BoundedSum,
                problem: Problem[Equation, Set[Int], Int],
                ranger: Ranger[Set[Int], Int],
-               satisfierIndex: Array[Satisfier]): Solver[Equation, Set[Int], Int]
-      = new Solver[Equation, Set[Int], Int](domain, problem, ranger)
+               satisfierIndex: Array[Satisfier]): SuperSimpleSolver[Equation, Set[Int], Int]
+      = new SuperSimpleSolver[Equation, Set[Int], Int](domain, problem, ranger)
     }
   }
 
@@ -85,15 +85,12 @@ object ExactCover {
 //    val si: Array[Satisfier] = satisfierIndex.toArray[Satisfier.class] WTF?
     val si = new Array[Satisfier](satisfierIndex.length)
     satisfierIndex.copyToArray(si)
-    val solver: Solver[Equation, Set[Int], Int] = solverFactory.make(domain, problem, new SetRanger(), si) // todo: revert to ordinary solver (without sanity check)
-    solver.solve() match {
+    val solver: SuperSimpleSolver[Equation, Set[Int], Int] = solverFactory.make(domain, problem, new SetRanger(), si) // todo: revert to ordinary solver (without sanity check)
+    val initialAssignment: Map[Int, Set[Int]] = (0 until vars.size).map(vid => (vid -> problem.candidateValues)).toMap
+    solver.backtrackingSearch(initialAssignment) match {
       case None => None
-      case Some(reader) =>
-        var ret: Set[Satisfier] = Set.empty
-        for (vid <- 0 until vars.size) {
-          if (reader.read(vid) == 1) ret = ret + satisfierIndex(vid)
-        }
-        Some(ret)
+      case Some(assignment) =>
+        Some[Set[Satisfier]](assignment.filter(_._2 == 1).toSet.map[Satisfier, Set[Satisfier]](x => satisfierIndex(x._1)))
     }
   }
 }
@@ -127,7 +124,7 @@ object NQueens {
   case class BackwardSlash(sum: Int) extends Constraint
 
   def main(args: Array[String]) {
-    val size = 8
+    val size = 4
 //    val satisfiers: Set[(Int, Int)] = (for (i <- 0 until size; j <- 0 until size) yield { ((i, j)) }).toSet
     val exact: Set[Constraint] = ((0 until size).map(Row(_)) ++ (0 until size).map(Column(_))).toSet
     val bounded: Set[Constraint] = ((-(size-1) until size).map(ForwardSlash(_)) ++ (0 until (2 * size - 1)).map(BackwardSlash(_))).toSet
@@ -146,8 +143,9 @@ object NQueens {
       println(constraint + ": " + getSatisfiers(constraint))
     }
     val sf = new SolverFactory[(Int, Int)] {
-      def make(domain: BoundedSum, problem: Problem[Equation, Set[Int], Int], ranger: Ranger[Set[Int], Int], satisfierIndex: Array[(Int, Int)]): Solver[Equation, Set[Int], Int] = {
-        new Solver[Equation, Set[Int], Int](domain, problem, ranger) {
+      def make(domain: BoundedSum, problem: Problem[Equation, Set[Int], Int], ranger: Ranger[Set[Int], Int], satisfierIndex: Array[(Int, Int)]): SuperSimpleSolver[Equation, Set[Int], Int] = {
+        new SuperSimpleSolver[Equation, Set[Int], Int](domain, problem, ranger) {
+          /*
           override def sanityCheckNoGood(nogood: NoGood[Set[Int]], constraints: List[(VarId, MixedConstraint)]) {
             val rejectingAssignment: Map[(Int, Int), Boolean] = nogood.forbidden.toList.map(x => (satisfierIndex(x._1), single(x._2))).toMap
             satisfyingAssignments(rejectingAssignment, (exact ++ bounded).toList).find(x => true) match {
@@ -196,7 +194,7 @@ object NQueens {
                 }).iterator
               }
             }
-          }
+          } */
         }
       }
     }
