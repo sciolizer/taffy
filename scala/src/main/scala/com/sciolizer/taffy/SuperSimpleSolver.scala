@@ -150,11 +150,12 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
           if (minimal) MinimalReject() else NonMinimalReject()
       }
     }
-
+                                 /*
     private val considered: mutable.Set[Set[VarId]] = mutable.Set.empty
 
     private def consider(vars: Set[VarId]) {
       if (considered.contains(vars)) return
+      considered += vars
       rejects(vars) match {
         case NonMinimalReject() =>
           for (vid <- vars) {
@@ -163,16 +164,20 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
         case MinimalReject() =>
         case Accept() =>
       }
-    }
+    }      */
 
+    // Every set is a minimal conflict, but the outer set is not complete. (There might be minimal conflicts
+    // not contained.) There will always be at least one minimal conflict.
     lazy val minimized: Set[Set[VarId]] = {
       println("considering: " + conflictingAssignment.keySet)
-      consider(conflictingAssignment.keySet) // populate accepting and rejecting
+      rejects(conflictingAssignment.keySet) // populate accepting and rejecting
       println("considered")
-      (Set.empty ++ rejecting).filter(x => rejects(x) match {
+      val ret = (Set.empty ++ rejecting).filter(x => rejects(x) match {
         case MinimalReject() => true
         case _ => false
       })
+      println("minimals: " + ret)
+      ret
     }
   }
 

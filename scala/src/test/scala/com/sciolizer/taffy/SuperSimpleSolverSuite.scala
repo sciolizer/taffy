@@ -27,7 +27,7 @@ class SuperSimpleSolverSuite extends FunSuite with BeforeAndAfter {
 
   test(".maintainArcConsistenty should fail on inconsistent assignment") {
     val prop = sss.maintainArcConsistency(initialAssignment ++ Map[Int, Set[Boolean]](0 -> Set()))
-    assert(prop.rejector === Some(constraint4))
+    assert(prop.rejector === Some(Right(constraint4)))
   }
   test(".revise should return None for unsatisfiable constraint") {
     assert(sss.revise(Right(constraint4), Map(0 -> Set(false))) === None)
@@ -49,7 +49,7 @@ class SuperSimpleSolverSuite extends FunSuite with BeforeAndAfter {
       Set(true, false))
     val sss = new SuperSimpleSolver[List[Literal], Set[Boolean], Boolean](new Disjunction[Set[Boolean]](), problem, new SetRanger())
     val propagation = sss.maintainArcConsistency(initialAssignment ++ Map(0 -> Set(true)))
-    assert(propagation.partialAssignment === Map(1 -> Set(true), 2 -> Set(true)))
+    assert(propagation.partialAssignment === Map(0 -> Set(true), 1 -> Set(true), 2 -> Set(true)))
   }
 
   test("Order domain values") {
@@ -68,7 +68,7 @@ class SuperSimpleSolverSuite extends FunSuite with BeforeAndAfter {
 
   test("minimize") {
     val minimized = sss.minimize(initialAssignment ++ Map(0 -> Set(false), 1 -> Set(false)))
-    assert(minimized === Set(Set(0), Set(1)))
+    assert(minimized.subsetOf(Set(Set(0), Set(1))))
   }
 
   test("noGood generation") {
