@@ -20,15 +20,29 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
   type Assignment = Vector[Variable]
   type PartialAssignment = Map[VarId, Variables]
 
-  var watchers: mutable.Map[VarId, mutable.Set[Constraint]] = mutable.Map().withDefault(_ => mutable.Set())
   val initialAssignment: PartialAssignment = (0 until problem.numVariables).map(i => (i -> problem.candidateValues)).toMap
 
-  for (constraint <- problem.constraints) {
-    val vars: mutable.Set[VarId] = mutable.Set()
-    val rw = tracker(initialAssignment)
-    domain.revise(rw, constraint)
-    for (variable <- vars) {
-      watchers(variable) += constraint
+  class Watchers(initialAssignment: PartialAssignment) {
+
+    private var registered: mutable.Map[VarId, mutable.Set[Constraint]] = mutable.Map()
+
+    problem.constraints.foreach(watch(_, initialAssignment))
+
+    def watchers(vid: VarId): Set[Constraint] = {
+      Set.empty ++ registered(vid)
+    }
+
+    def watch(constraint: Constraint, assignment: PartialAssignment) {
+      val rw = tracker(assignment)
+      domain.revise(rw, constraint)
+      for (variable <- rw.vars) {
+        registered.get(variable) match {
+          case None =>
+            registered(variable) = mutable.Set(constraint)
+          case Some(s) =>
+            s += constraint
+        }
+      }
     }
   }
 
@@ -48,6 +62,7 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
    * @return
    */
   def maintainArcConsistency(assignment: PartialAssignment): Propagation = {
+    val watchers = new Watchers(initialAssignment ++ assignment)
     var overlay: PartialAssignment = assignment
     val constraints: mutable.Set[Constraint] = mutable.Set()
     constraints ++= problem.constraints
@@ -56,14 +71,18 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
       val constraint: Constraint = constraints.head
       constraints -= constraint
       revise(constraint, overlay) match {
-        case None => return Propagation(Some(constraint), implied)
+        case None =>
+          return Propagation(Some(constraint), implied)
         case Some(pa) =>
+          overlay = overlay ++ pa
           for ((vid, vals) <- pa) {
-            constraints ++= watchers(vid)
-            watchers(vid) += constraint
+            // Variable assignment changed, so we need to re-examine all constraints covering that variable.
+            constraints ++= watchers.watchers(vid)
+            // With new assignments, constraint might read from more variables than it did before, so we need
+            // to re-watch it.
+            watchers.watch(constraint, assignment ++ overlay)
             implied = implied.updated(vid, (vals, constraint) +: implied(vid))
           }
-          overlay = overlay ++ pa
       }
     }
     Propagation(None, implied)
@@ -179,13 +198,13 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
 
     lazy val minimized: Set[Set[VarId]] = {
       rejects(conflictingAssignment.keySet) // populate accepting and rejecting
-      rejecting.filter(x => rejects(x) match {
+      (Set.empty ++ rejecting).filter(x => rejects(x) match {
         case MinimalReject() => true
         case _ => false
       })
     }
   }
-
+      /*
   /**
    * Returns all constraints violated by the given assignment.
    *
@@ -195,7 +214,7 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
   def rejectors(assignment: PartialAssignment): Set[Constraint] = {
     problem.constraints.filter(revise(_, assignment).isDefined)
   }
-
+        */
   /*
   def backtrackingSearch(assignment: Assignment): Option[Map[VarId, Variable]] = {
     if (isComplete(assignment)) {

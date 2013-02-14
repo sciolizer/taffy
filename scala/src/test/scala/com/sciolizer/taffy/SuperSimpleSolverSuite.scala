@@ -24,6 +24,10 @@ class SuperSimpleSolverSuite extends FunSuite with BeforeAndAfter {
     Set(true, false))
   val sss = new SuperSimpleSolver[List[Literal], Set[Boolean], Boolean](new Disjunction[Set[Boolean]](), problem, new SetRanger())
 
+  test(".maintainArcConsistenty should fail on inconsistent assignment") {
+    val prop = sss.maintainArcConsistency(Map(0 -> Set()))
+    assert(prop.rejector === Some(constraint4))
+  }
   test(".revise should return None for unsatisfiable constraint") {
     assert(sss.revise(constraint4, Map(0 -> Set(false))) === None)
   }
@@ -36,19 +40,19 @@ class SuperSimpleSolverSuite extends FunSuite with BeforeAndAfter {
     assert(sss.revise(constraint4, Map.empty) === Some(Map(0 -> Set(true))))
   }
 
-  test(".rejectors returns empty set for empty assignment") {
-    assert(sss.rejectors(Map.empty) === Set.empty)
-  }
-
-  test(".rejectors returns empty set for arc-consistent assignment") {
-    assert(sss.rejectors(Map(0 -> Set(true), 1 -> Set(true), 2 -> Set(true))) === Set.empty)
-  }
-
-  test(".rejectors returns all rejecting constraints for arc-consistent assignment") {
-    assert(sss.rejectors(Map(0 -> Set(false))) === Set(constraint4))
+  test(".maintainArcConsistency should return deduce solution") {
+    // Same as problem above, but constraint 4 is removed.
+    val problem = new Problem[List[Literal], Set[Boolean], Boolean](
+      3,
+      Set(constraint0, constraint1, constraint2, constraint3),
+      Set(true, false))
+    val sss = new SuperSimpleSolver[List[Literal], Set[Boolean], Boolean](new Disjunction[Set[Boolean]](), problem, new SetRanger())
+    val propagation = sss.maintainArcConsistency(Map(0 -> Set(true)))
+    assert(propagation.partialAssignment === Map(1 -> Set(true), 2 -> Set(true)))
   }
 
   test("subsetOf returns true for non-proper subsets") {
-    assert(false)
+    val s = Set(3)
+    assert(s.subsetOf(s))
   }
 }
