@@ -15,16 +15,16 @@ import scala.collection.mutable
  * Date: 2/6/13
  * Time: 2:55 PM
  */
-class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variables, Variable],
-                                                          problem: Problem[Constraint, Variables, Variable],
-                                                          ranger: Ranger[Variables, Variable]) {
+class SuperSimpleSolver[Constraint, Variables, Variable]( val domain: Domain[Constraint, Variables, Variable],
+                                                          val problem: Problem[Constraint, Variables, Variable],
+                                                          val ranger: Ranger[Variables, Variable]) {
   type VarId = Int
   type MixedConstraint = Either[NoGood[Variables], Constraint]
 
   type Assignment = Vector[Variable]
   type PartialAssignment = Map[VarId, Variables]
 
-  private val _learned: mutable.Set[MixedConstraint] = mutable.Set.empty
+  private val _learned: mutable.Set[MixedConstraint] = mutable.Set.empty ++ problem.constraints.flatMap(x => isomorphicConstraints(Right(x)))
   def learned: Set[MixedConstraint] = Set.empty ++ _learned
 
   class Watchers(initialAssignment: PartialAssignment) {
@@ -228,6 +228,11 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
 
   def learn(constraint: MixedConstraint) {
     _learned += constraint
+    _learned ++= isomorphicConstraints(constraint)
+  }
+
+  def isomorphicConstraints(constraint: MixedConstraint): mutable.Set[MixedConstraint] = {
+    val ret: mutable.Set[MixedConstraint] = mutable.Set.empty
     val covered: collection.Set[VarId] = constraint match {
       case Left(noGood) => noGood.coverage()
       case Right(c) => domain.coverage(c)
@@ -235,8 +240,9 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
     val vars = covered.toList
     for (sequence <- problem.isomorphisms.get(vars)) {
       val substitution: Map[VarId, VarId] = vars.zip(sequence).toMap
-      _learned += substitute(constraint, substitution)
+      ret += substitute(constraint, substitution)
     }
+    ret
   }
 
   def substitute(c: MixedConstraint, subst: Map[VarId, VarId]): MixedConstraint = {
