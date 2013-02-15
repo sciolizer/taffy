@@ -37,13 +37,6 @@ class IsosSuite extends FunSuite {
   }
 
   test("Two coloring with symmetry") {
-    /*
-      --- b ---       -- f --
-     /         \     /       \
-    a --- c ----- e ---- g --- i
-     \         /     \       /
-      --- d ---       -- h --
-     */
     abstract class EqualityConstraint(val left: Int, val right: Int) extends Comparable[EqualityConstraint] {
       def revise(rw: ReadWrite[Set[Color], Color]): Boolean = {
         val leftVals = rw.readVar(left)
@@ -103,24 +96,28 @@ class IsosSuite extends FunSuite {
         ret
       }
     }
+    /*
+      --- b ---       -- e --
+     /         \     /       \
+    a          -- d -         g
+     \         /     \       /
+      --- c ---       -- f --
+     */
     val ab = Unequal(0, 1)
     val ac = Unequal(0, 2)
-    val ad = Unequal(0, 3)
-    val be = Unequal(1, 4)
-    val ce = Unequal(2, 4)
+    val bd = Unequal(1, 3)
+    val cd = Unequal(2, 3)
     val de = Unequal(3, 4)
-    val ef = Unequal(4, 5)
+    val df = Unequal(3, 5)
     val eg = Unequal(4, 6)
-    val eh = Unequal(4, 7)
-    val fi = Unequal(5, 8)
-    val gi = Unequal(6, 8)
-    val hi = Unequal(7, 8)
+    val fg = Unequal(5, 6)
     val isos = new Isos()
-    isos.add(List(0, 1, 2, 3, 4), Set(List(4, 5, 6, 7, 8)))
-    val problem = new Problem[EqualityConstraint, Set[Color], Color](9, Set(ab, ac, ad, be, ce, de, ef, eg, eh, fi, gi, hi), Set(Black(), White()), isos)
+    isos.add(List(0, 1, 2, 3), Set(List(3, 4, 5, 6)))
+    val problem = new Problem[EqualityConstraint, Set[Color], Color](7, Set(ab, ac, bd, cd, de, df, eg, fg), Set(Black(), White()), isos)
     val sss = new SuperSimpleSolver[EqualityConstraint, Set[Color], Color](new TwoColoringDomain(), problem, new SetRanger[Color]())
-    assert(sss.backtrackingSearch(((0 until 9).map(_ -> problem.candidateValues).toMap: Map[Int, Set[Color]]) ++ Map[Int, Set[Color]](0 -> Set(Black()), 4 -> Set(White()))) === None)
-    assert(sss.learned.contains(Right(Equal(0, 4))))
-    assert(sss.learned.contains(Right(Equal(4, 8))))
+    assert(sss.backtrackingSearch(((0 until 7).map(_ -> problem.candidateValues).toMap: Map[Int, Set[Color]]) ++ Map[Int, Set[Color]](0 -> Set(Black()), 3 -> Set(White()))) === None)
+    println(sss.learned)
+    assert(sss.learned.contains(Right(Equal(1, 2))))
+    assert(sss.learned.contains(Right(Equal(4, 5))))
   }
 }

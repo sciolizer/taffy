@@ -120,7 +120,7 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
       None
     } else {
       val changed: PartialAssignment = rw.changes.filter(x => !ranger.equal(assignment(x._1), x._2)).toMap
-      Some[PartialAssignment]((Map.empty[VarId, Variables] ++ changed).asInstanceOf[PartialAssignment]) // ugh... why do I keep ending up with these casts?
+      Some[PartialAssignment]((Map.empty[VarId, Variables] ++ changed))
     }
   }
 
