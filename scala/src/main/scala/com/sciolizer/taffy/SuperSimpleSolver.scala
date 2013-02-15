@@ -23,6 +23,9 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
   private val _noGoods: mutable.Set[NoGood[Variables]] = mutable.Set.empty
   def noGoods: Set[NoGood[Variables]] = Set.empty ++ _noGoods
 
+  private val _learned: mutable.Set[Constraint] = mutable.Set.empty
+  def learned: Set[Constraint] = Set.empty ++ _learned
+
   class Watchers(initialAssignment: PartialAssignment) {
 
     private var registered: mutable.Map[VarId, mutable.Set[MixedConstraint]] = mutable.Map()
@@ -209,6 +212,9 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
         case Some(c) =>
           for (minimalConflict <- minimize(newNewAssignment)) {
             _noGoods += new NoGood(newNewAssignment.filterKeys(minimalConflict.contains(_)))
+            val reduced = domain.superSimpleLearn(sustainer.impliedVariables -- minimalConflict, sustainer.propagators).map(_._1)
+            println("learned: " + reduced)
+            _learned ++= reduced
           }
       }
     }

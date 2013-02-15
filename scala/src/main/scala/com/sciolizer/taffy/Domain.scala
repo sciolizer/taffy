@@ -19,6 +19,8 @@ trait Domain[Constraint, Variables, Variable] {
    */
   def learn(constraints : List[(VarId, MixedConstraint)]) : List[(Constraint /* new constraint */,List[MixedConstraint] /* generated from */)] = List.empty
 
+  def superSimpleLearn(vars: Set[VarId], constraints: Set[MixedConstraint]): List[(Constraint, List[MixedConstraint])] = List.empty
+
   def revise(rw : ReadWrite[Variables, Variable], c: Constraint) : Boolean
 
   def coverage(c : Constraint) : collection.Set[VarId]
