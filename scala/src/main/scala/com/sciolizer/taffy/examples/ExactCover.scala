@@ -81,7 +81,7 @@ object ExactCover {
       equations = equations + Equation(getSatisfiers(constraint).toList.map(x => Addend(1, vars(x))), LtEq(), 1)
     }
     val domain = new BoundedSum(0, 1)
-    val problem = new Problem[Equation, Set[Int], Int](vars.size, equations, Set(0, 1))
+    val problem = new Problem[Equation, Set[Int], Int](vars.size, equations, Set(0, 1), NoIsomorphisms)
 //    val si: Array[Satisfier] = satisfierIndex.toArray[Satisfier.class] WTF?
     val si = new Array[Satisfier](satisfierIndex.length)
     satisfierIndex.copyToArray(si)

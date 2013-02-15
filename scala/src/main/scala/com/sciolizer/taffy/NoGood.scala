@@ -8,7 +8,7 @@ package com.sciolizer.taffy
  */
 class NoGood[Variables](val forbidden: Map[Int, Variables]) {
   def substitute(substitution: Map[Int, Int]): NoGood[Variables] = {
-
+    new NoGood(forbidden.toList.map(x => (substitution(x._1), x._2)).toMap)
   }
 
   def coverage(): Set[Int] = forbidden.keySet

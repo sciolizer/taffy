@@ -44,8 +44,8 @@ trait Isomorphisms {
   type VarId = Int
   def get(one: List[VarId]): Set[List[VarId]]
 }
-object NullIsomorphisms extends Isomorphisms {
-  def get(one: List[NullIsomorphisms.VarId]): Set[List[NullIsomorphisms.VarId]] = Set.empty
+object NoIsomorphisms extends Isomorphisms {
+  def get(one: List[NoIsomorphisms.VarId]): Set[List[NoIsomorphisms.VarId]] = Set.empty
 }
 class Isos extends Isomorphisms {
 

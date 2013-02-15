@@ -21,7 +21,8 @@ class SuperSimpleSolverSuite extends FunSuite with BeforeAndAfter {
   val problem = new Problem[List[Literal], Set[Boolean], Boolean](
     3,
     Set(constraint0, constraint1, constraint2, constraint3, constraint4),
-    Set(true, false))
+    Set(true, false),
+    NoIsomorphisms)
   val sss = new SuperSimpleSolver[List[Literal], Set[Boolean], Boolean](new Disjunction[Set[Boolean]](), problem, new SetRanger())
   val initialAssignment: SuperSimpleSolver.PartialAssignment[Set[Boolean]] = (0 until 3).map(vid => vid -> problem.candidateValues).toMap
 
@@ -46,7 +47,8 @@ class SuperSimpleSolverSuite extends FunSuite with BeforeAndAfter {
     val problem = new Problem[List[Literal], Set[Boolean], Boolean](
       3,
       Set(constraint0, constraint1, constraint2, constraint3),
-      Set(true, false))
+      Set(true, false),
+      NoIsomorphisms)
     val sss = new SuperSimpleSolver[List[Literal], Set[Boolean], Boolean](new Disjunction[Set[Boolean]](), problem, new SetRanger())
     val sustainer = sss.newConsistencySustainer(initialAssignment ++ Map(0 -> Set(true)))
     assert(sustainer.implication === Map(0 -> Set(true), 1 -> Set(true), 2 -> Set(true)))
@@ -76,6 +78,6 @@ class SuperSimpleSolverSuite extends FunSuite with BeforeAndAfter {
     // Even though var 2 ('c' in the examples above) is not "given" as an argument to backtrackingSearch,
     // propagation (maintainArcConsistency) will add it to the conflictingAssignment, and so it will
     // be discovered as its own minimal conflict.
-    assert(sss.noGoods === Set(new NoGood(Map(0 -> Set(false))), new NoGood(Map(1 -> Set(false))), new NoGood(Map(2 -> Set(false)))))
+    assert(sss.learned === Set(Left(new NoGood(Map(0 -> Set(false)))), Left(new NoGood(Map(1 -> Set(false)))), Left(new NoGood(Map(2 -> Set(false))))))
   }
 }

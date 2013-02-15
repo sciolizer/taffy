@@ -13,6 +13,10 @@ class Disjunction[Booleans] extends Domain[List[Literal], Booleans, Boolean] {
 
   // Learn function does not need to be implemented, because nogood generation already covers it.
 
+
+  // Substitution will always contain keys for at least everything in coverage.
+  def substitute(c: List[Literal], substitution: Map[VarId, VarId]): List[Literal] = c.map(_.substitute(substitution))
+
   def revise(rw: ReadWrite[Booleans, Boolean], c: List[Literal]) : Boolean = {
     var accepts: Option[(Int, Boolean)] = None
     for (Literal(expected, varId) <- c) {
@@ -38,4 +42,6 @@ class Disjunction[Booleans] extends Domain[List[Literal], Booleans, Boolean] {
   def coverage(c: List[Literal]): collection.Set[Int] = c.map(_.vid).toSet
 }
 
-case class Literal(expected: Boolean, vid: Int)
+case class Literal(expected: Boolean, vid: Int) {
+  def substitute(substitution: Map[Int, Int]): Literal = copy(vid = substitution(vid))
+}

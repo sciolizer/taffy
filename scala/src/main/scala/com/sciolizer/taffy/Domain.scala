@@ -25,5 +25,6 @@ trait Domain[Constraint, Variables, Variable] {
 
   def coverage(c : Constraint) : collection.Set[VarId]
 
+  // Substitution will always contain keys for at least everything in coverage.
   def substitute(c: Constraint, substitution: Map[VarId, VarId]): Constraint
 }

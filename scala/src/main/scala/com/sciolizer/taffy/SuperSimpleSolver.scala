@@ -5,7 +5,11 @@ import scala.collection.mutable
 /**
  * Algorithm taken directly from page 215 of Artifical Intelligence: A Modern approach.
  *
- *
+ * Rather than transform this into a more efficient version, I think I'll
+ * use it to test against a more efficient version. e.g. generate random
+ * sat problems, and if the efficient one says "no solution", make
+ * sure that the slow one also says "no solution". (If a solution is provided,
+ * obviously I can just check it.)
  * Created with IntelliJ IDEA.
  * User: jball
  * Date: 2/6/13
@@ -211,7 +215,7 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
             learn(Left(new NoGood(newNewAssignment.filterKeys(minimalConflict.contains(_)))))
             val reduced = domain.superSimpleLearn(sustainer.impliedVariables -- minimalConflict, sustainer.propagators).map(_._1)
             println("learned: " + reduced)
-            reduced.foreach(learn(_))
+            reduced.foreach(x => learn(Right(x)))
           }
       }
     }

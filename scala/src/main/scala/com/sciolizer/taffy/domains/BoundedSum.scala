@@ -16,6 +16,10 @@ class BoundedSum(minimum: Int, maximum: Int /*, ordering: WellOrdered */) extend
   if (minimum < 0) throw new IllegalArgumentException("Negative minimums is not currently supported: " + minimum)
   if (minimum > maximum) throw new IllegalArgumentException("maximum " + maximum + "must be greater than minimum " + minimum)
 
+
+  // Substitution will always contain keys for at least everything in coverage.
+  def substitute(c: Equation, substitution: Map[VarId, VarId]): Equation = c.substitute(substitution)
+
   override def learn(constraints: List[(VarId, MixedConstraint)]): List[(Equation, List[MixedConstraint])] = {
     val vars = constraints.map(_._1).toSet
     superSimpleLearn(vars, constraints.map(_._2).toSet)
@@ -129,8 +133,16 @@ class BoundedSum(minimum: Int, maximum: Int /*, ordering: WellOrdered */) extend
   def coverage(c: Equation): collection.Set[BoundedSum#VarId] = c.addends.map(_.variable).toSet
 }
 
-case class Addend(coefficient: Int, variable: Int)
-case class Equation(addends: List[Addend], relation: Relation, sum: Int)
+case class Addend(coefficient: Int, variable: Int) {
+  def substitute(substitution: Map[Int, Int]): Addend = copy(variable = substitution(variable))
+}
+
+case class Equation(addends: List[Addend], relation: Relation, sum: Int) {
+  def substitute(substitution: Map[Int, Int]): Equation = {
+    copy(addends = addends.map(_.substitute(substitution)))
+  }
+}
+
 abstract class Relation { def multiply(coefficient: Int): Relation }
 
 case class Eq() extends Relation { def multiply(_coefficient: Int) = Eq() }
