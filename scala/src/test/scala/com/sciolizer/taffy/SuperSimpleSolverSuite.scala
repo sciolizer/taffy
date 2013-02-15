@@ -3,6 +3,7 @@ package com.sciolizer.taffy
 import com.sciolizer.taffy.domains.{Literal, Disjunction}
 import org.scalatest.FunSuite
 import org.scalatest.BeforeAndAfter
+import scala.collection
 
 /**
  * Created with IntelliJ IDEA.
@@ -80,4 +81,23 @@ class SuperSimpleSolverSuite extends FunSuite with BeforeAndAfter {
     // be discovered as its own minimal conflict.
     assert(sss.learned === Set(Left(new NoGood(Map(0 -> Set(false)))), Left(new NoGood(Map(1 -> Set(false)))), Left(new NoGood(Map(2 -> Set(false))))))
   }
+
+  object AllZeroes extends Domain[Int, Set[Int], Int] {
+    def revise(rw: ReadWrite[Set[Int], Int], c: Int): Boolean = { rw.setVar(c, 0); true }
+    def coverage(c: Int): collection.Set[AllZeroes.VarId] = Set(c)
+    def substitute(c: Int, substitution: Map[AllZeroes.VarId, AllZeroes.VarId]): Int = substitution(c)
+  }
+
+  test("Duplicate writes are not mistaken as revisions") {
+    val p = new Problem[Int, Set[Int], Int](2, Set(0, 1, 2), Set(0, 1, 2), NoIsomorphisms)
+    val sss = new SuperSimpleSolver[Int, Set[Int], Int](AllZeroes, p, new SetRanger())
+    assert(sss.revise(Right(0), Map(0 -> Set(0), 1 -> Set(0, 1, 2))) === Some(Map.empty))
+  }
+
+  test("Empty candidate values count as failure") {
+    val p = new Problem[Int, Set[Int], Int](2, Set(0, 1, 2), Set(0, 1, 2), NoIsomorphisms)
+    val sss = new SuperSimpleSolver[Int, Set[Int], Int](AllZeroes, p, new SetRanger())
+    assert(sss.revise(Right(0), Map(0 -> Set(1), 1 -> Set(0, 1, 2))) === None)
+  }
+
 }

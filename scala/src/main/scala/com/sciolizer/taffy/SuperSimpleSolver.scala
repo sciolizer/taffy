@@ -88,16 +88,18 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
           case None =>
             return Some[MixedConstraint](constraint)
           case Some(pa) =>
-            _propagators += constraint
-            _implication = _implication ++ pa
-            for ((vid, vals) <- pa) {
-              _modifiedVariables += vid
-              // Variable assignment changed, so we need to re-examine all constraints covering that variable.
-              constraints ++= watchers.watchers(vid)
-              // With new assignments, constraint might read from more variables than it did before, so we need
-              // to re-watch it.
-              watchers.watch(constraint, assignment ++ _implication)
-              //            implied = implied.updated(vid, (vals, constraint) +: implied(vid))
+            if (!pa.isEmpty) {
+              _propagators += constraint
+              _implication = _implication ++ pa
+              for ((vid, vals) <- pa) {
+                _modifiedVariables += vid
+                // Variable assignment changed, so we need to re-examine all constraints covering that variable.
+                constraints ++= watchers.watchers(vid)
+                // With new assignments, constraint might read from more variables than it did before, so we need
+                // to re-watch it.
+                watchers.watch(constraint, assignment ++ _implication)
+                //            implied = implied.updated(vid, (vals, constraint) +: implied(vid))
+              }
             }
         }
       }
@@ -114,10 +116,11 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
    */
   def revise(constraint: MixedConstraint, assignment: PartialAssignment): Option[PartialAssignment] = {
     val rw = tracker(assignment)
-    if (!satisfiable(constraint, rw)) {
+    if (!satisfiable(constraint, rw) || rw.changes.exists(x => ranger.isEmpty(x._2))) {
       None
     } else {
-      Some[PartialAssignment]((Map.empty[VarId, Variables] ++ rw.changes).asInstanceOf[PartialAssignment]) // ugh... why do I keep ending up with these casts?
+      val changed: PartialAssignment = rw.changes.filter(x => !ranger.equal(assignment(x._1), x._2)).toMap
+      Some[PartialAssignment]((Map.empty[VarId, Variables] ++ changed).asInstanceOf[PartialAssignment]) // ugh... why do I keep ending up with these casts?
     }
   }
 
@@ -200,6 +203,7 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
       case None =>
     }
     val variable: VarId = selectUnassignedVariable(assignment)
+    println("picking variable: " + variable)
     for (value <- orderDomainValues(variable, assignment)) {
       val newAssignment: PartialAssignment = assignment.updated(variable, ranger.toSingleton(value))
       val sustainer = new ConsistencySustainer(newAssignment)
