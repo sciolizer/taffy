@@ -6,6 +6,10 @@ package com.sciolizer.taffy
  * Date: 1/28/13
  * Time: 10:58 AM
  */
-class Read[Constraint, Variables, Variable](graph: ImplicationGraph[Constraint, Variables, Variable], ranger: Ranger[Variables, Variable]) {
+class Read[Constraint, Variables, Variable](graph: ImplicationGraph[Constraint, Variables, Variable], ranger: Ranger[Variables, Variable]) extends Reader[Variable] {
   def read(vid: Int) : Variable = ranger.fromSingleton(graph.readVar(vid))
+}
+
+trait Reader[Value] {
+  def read(vid: Int): Value
 }

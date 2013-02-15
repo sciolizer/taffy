@@ -9,6 +9,7 @@ import collection.mutable
  * Date: 1/28/13
  * Time: 9:32 AM
  */
+
 trait ReadWrite[Variables, Variable] {
   type VarId = Int
   protected def ranger: Ranger[Variables, Variable]

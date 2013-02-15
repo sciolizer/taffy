@@ -96,7 +96,7 @@ class IsosSuite extends FunSuite {
     }
   }
 
-  def twoColoringProblem: SuperSimpleSolver[EqualityConstraint, Set[Color], Color] = {
+  def twoColoringProblem(): SuperSimpleSolver[EqualityConstraint, Set[Color], Color] = {
     /*
       --- b ---       -- e --
      /         \     /       \
@@ -119,7 +119,7 @@ class IsosSuite extends FunSuite {
   }
 
   test("Two color symmetry") {
-    val sss = twoColoringProblem
+    val sss = twoColoringProblem()
     assert(sss.backtrackingSearch(((0 until 7).map(_ -> sss.problem.candidateValues).toMap: Map[Int, Set[Color]]) ++ Map[Int, Set[Color]](0 -> Set(Black()), 3 -> Set(White()))) === None)
     println(sss.learned)
     println((for (Right(x) <- sss.learned) yield x).toSet)
@@ -128,7 +128,7 @@ class IsosSuite extends FunSuite {
   }
 
   test("Inferring initial constraints from symmetry") {
-    val sss = twoColoringProblem
+    val sss = twoColoringProblem()
     sss.learned.contains(Right(Unequal(5, 6)))
   }
 }
