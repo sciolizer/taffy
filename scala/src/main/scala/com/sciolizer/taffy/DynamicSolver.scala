@@ -9,12 +9,12 @@ import util.control.Breaks._
  * Time: 11:32 AM
  */
 class DynamicSolver[Constraint, Values, Value](domain: Domain[Constraint, Values, Value], ranger: Ranger[Values, Value]) {
-  def solve[A, B](problem: Init[Constraint, Value] => A, solutionReader: Reader[Value] => B): Option[B] = {
+  def solve[A, B](problem: Init[Constraint, Value] => A, solutionReader: (A, Reader[Value]) => B): Option[B] = {
 
   }
 }
 
-class Variable[Value]
+class Variable[Value](val varId: Int)
 
 trait Instantiator[Constraint, Value] {
   def newVariable(sideEffects: SideEffects[Constraint, Value] = noSideEffects): Variable[Value]

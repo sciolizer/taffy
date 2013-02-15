@@ -1,6 +1,7 @@
 package com.sciolizer.taffy
 
 import org.scalatest.FunSuite
+import scala.collection
 
 /**
  * Created with IntelliJ IDEA.
@@ -18,12 +19,66 @@ class DynamicSolverSuite extends FunSuite {
     abstract class Value
     case class ValueInt(value: Int) extends Value
     case class ValueList(isEmpty: Boolean) extends Value
-    abstract class Constraint
-    case class TypeIs(v: Variable[Value], expected: Class) extends Constraint
-    case class ConditionallyEqualInts(left: Variable[Value], right: Variable[Value], list: Variable[Value], whenEmpty: Boolean) extends Constraint
-    case class EqualInts(left: Variable[Value], right: Variable[Value]) extends Constraint
-    case class ConstantInt(v: Variable[Value], i: Int) extends Constraint
-    case class DifferenceOf(larger: Variable[Value], smaller: Variable[Value], diff: Int) extends Constraint
+    abstract class Constraint {
+      def revise(rw: ReadWrite[Set[Value], Value]): Boolean
+      val coverage: Set[Int]
+    }
+    case class TypeIs(v: Variable[Value], expected: Class) extends Constraint {
+      def revise(rw: ReadWrite[Set[Value], Value]): Boolean = {
+        if (expected == Class[ValueInt]) {
+          rw.shrinkVar(v.varId, ValueList(isEmpty = true))
+          rw.shrinkVar(v.varId, ValueList(isEmpty = false))
+        } else if (expected == Class[ValueList]) {
+          rw.intersectVar(v.varId, Set(ValueList(isEmpty = true), ValueList(isEmpty = false)))
+        } else {
+          throw new RuntimeException("Unexpected class: " + expected)
+        }
+        true
+      }
+      lazy val coverage: Set[Int] = Set(v.varId)
+    }
+    case class ConditionallyEqualInts(left: Variable[Value], right: Variable[Value], list: Variable[Value], whenEmpty: Boolean) extends Constraint {
+      def revise(rw: ReadWrite[Set[Value], Value]): Boolean = {
+        if (rw.readVar(list.varId) != Set(ValueList(whenEmpty))) return true
+        val leftVals = rw.readVar(left.varId)
+        val rightVals = rw.readVar(right.varId)
+        rw.intersectVar(left.varId, rightVals)
+        rw.intersectVar(right.varId, leftVals)
+        true
+      }
+
+      lazy val coverage: Set[Int] = Set(left.varId, right.varId, list.varId)
+    }
+    case class EqualInts(left: Variable[Value], right: Variable[Value]) extends Constraint {
+      def revise(rw: ReadWrite[Set[Value], Value]): Boolean = {
+        val leftVals = rw.readVar(left.varId)
+        val rightVals = rw.readVar(right.varId)
+        rw.intersectVar(left.varId, rightVals)
+        rw.intersectVar(right.varId, leftVals)
+        true
+      }
+
+      lazy val coverage: Set[Int] = Set(left.varId, right.varId)
+    }
+    case class ConstantInt(v: Variable[Value], i: Int) extends Constraint {
+      def revise(rw: ReadWrite[Set[Value], Value]): Boolean = {
+        rw.setVar(v.varId, i)
+        true
+      }
+
+      lazy val coverage: Set[Int] = Set(v.varId)
+    }
+    case class DifferenceOf(larger: Variable[Value], smaller: Variable[Value], diff: Int) extends Constraint {
+      def revise(rw: ReadWrite[Set[Value], Value]): Boolean = {
+        val largerVals = rw.readVar(larger.varId)
+        val smallerVals = rw.readVar(smaller.varId)
+        rw.intersectVar(larger.varId, (for (ValueInt(i) <- smallerVals) yield ValueInt(i + diff)))
+        rw.intersectVar(smaller.varId, (for (ValueInt(i) <- largerVals) yield ValueInt(i + diff)))
+        true
+      }
+
+      lazy val coverage: Set[Int] = Set(larger.varId, smaller.varId)
+    }
 
     // We start with 6 variables:
     //   left0
@@ -58,26 +113,54 @@ class DynamicSolverSuite extends FunSuite {
 
     // The output solution should be [6, 12, 18, 24] and [8, 16, 24]. (leftLast[0-3] and rightLast[0-2] = 24)
 
-    def problem(init: Init[Constraint, Value]): String = {
-      val left0 = init.newVariable()
-      val leftLast0 = init.newVariable()
+    def problem(init: Init[Constraint, Value]): Variable[Value] = {
+      case class Triple(local: Variable[Value], localLast: Variable[Value], localSize: Variable[Value])
+      def make(instantiator: Instantiator[Constraint, Value], diff: Int): Triple /* the head */ = {
+        val local = instantiator.newVariable()
+        val localLast = instantiator.newVariable()
+        val localSize = instantiator.newVariable(extend(local, localLast, diff))
+        instantiator.newConstraint(TypeIs(local, Class[ValueInt]))
+        instantiator.newConstraint(TypeIs(localLast, Class[ValueInt]))
+        instantiator.newConstraint(TypeIs(localSize, Class[ValueList]))
+        instantiator.newConstraint(ConditionallyEqualInts(local, localLast, localSize, whenEmpty = true))
+        Triple(local, localLast, localSize)
+      }
 
-      val extendLeft = new SideEffects[Constraint, Value] {
+      def extend(prev: Variable[Value], prevLast: Variable[Value], diff: Int): SideEffects[Constraint, Value] = new SideEffects[Constraint, Value] {
         def run(variable: Variable[Value], value: Value, instantiator: Instantiator[Constraint, Value]) {
           if (value == ValueList(isEmpty = false)) {
-            val local = instantiator.newVariable()
-            val localLast = instantiator.newVariable()
-            val localSize = instantiator.newVariable(extendLeft)
-            instantiator.newConstraint(TypeIs(local, Class[ValueInt]))
-            instantiator.newConstraint(TypeIs(localLast, Class[ValueInt]))
-            instantiator.newConstraint(TypeIs(localSize, Class[ValueList]))
-            instantiator.newConstraint(ConditionallyEqualInts(local, localLast, localSize, whenEmpty = true))
-            instantiator.newConstraint(ConditionallyEqualInts(hm, local, variable, whenEmpty = false))
-            instantiator.newConstraint(DifferenceOf(local, hm, 6))
+            val triple = make(instantiator, diff)
+            instantiator.newConstraint(ConditionallyEqualInts(prevLast, triple.local, variable, whenEmpty = false))
+            instantiator.newConstraint(DifferenceOf(triple.local, prev, diff))
           }
         }
       }
-      val leftSize0 = init.newVariable(extendLeft)
+
+      val left = make(init, 6)
+      val right = make(init, 8)
+
+      init.newConstraint(EqualInts(left.localLast, right.localLast))
+
+      left.localLast // todo: figure out how I could reconstruct the entire list; just returning the last value seems like a limited use case
     }
+
+    object D extends Domain[Constraint, Set[Value], Value] {
+      def revise(rw: ReadWrite[Set[Value], Value], c: Constraint): Boolean = c.revise(rw)
+
+      def coverage(c: Constraint): collection.Set[D.VarId] = c.coverage
+
+      // Substitution will always contain keys for at least everything in coverage.
+      def substitute(c: Constraint, substitution: Map[D.VarId, D.VarId]): Constraint = throw new RuntimeException("There are no isomorphisms.")
+    }
+    val ds = new DynamicSolver[Constraint, Set[Value], Value](D, new SetRanger())
+
+    def reader(v: Variable[Value], reader: Reader[Value]): Int = {
+      reader.read(v.varId) match {
+        case ValueInt(i) => i
+        case _ => throw new IllegalStateException("TypeIs constraint was not satisfied.")
+      }
+    }
+
+    ds.solve(problem, reader)
   }
 }
