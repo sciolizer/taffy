@@ -20,18 +20,15 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
   type Assignment = Vector[Variable]
   type PartialAssignment = Map[VarId, Variables]
 
-  private val _noGoods: mutable.Set[NoGood[Variables]] = mutable.Set.empty
-  def noGoods: Set[NoGood[Variables]] = Set.empty ++ _noGoods
-
-  private val _learned: mutable.Set[Constraint] = mutable.Set.empty
-  def learned: Set[Constraint] = Set.empty ++ _learned
+  private val _learned: mutable.Set[MixedConstraint] = mutable.Set.empty
+  def learned: Set[MixedConstraint] = Set.empty ++ _learned
 
   class Watchers(initialAssignment: PartialAssignment) {
 
     private var registered: mutable.Map[VarId, mutable.Set[MixedConstraint]] = mutable.Map()
 
     problem.constraints.foreach(x => watch(Right(x), initialAssignment))
-    _noGoods.foreach(x => watch(Left(x), initialAssignment))
+    _learned.foreach(x => watch(x, initialAssignment))
 
     def watchers(vid: VarId): Set[MixedConstraint] = {
       registered.get(vid) match {
@@ -78,7 +75,7 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
     private def maintainArcConsistency(): Option[MixedConstraint] = {
       val watchers = new Watchers(assignment)
       val constraints: mutable.Set[MixedConstraint] = mutable.Set()
-      constraints ++= problem.constraints.map(Right(_)) ++ _noGoods.map(Left(_))
+      constraints ++= problem.constraints.map(Right(_)) ++ _learned
       //    var implied: Map[VarId, List[(Variables, Constraint)]] = Map.empty
       while (!constraints.isEmpty) {
         val constraint = constraints.head
@@ -211,14 +208,34 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
           }
         case Some(c) =>
           for (minimalConflict <- minimize(newNewAssignment)) {
-            _noGoods += new NoGood(newNewAssignment.filterKeys(minimalConflict.contains(_)))
+            learn(Left(new NoGood(newNewAssignment.filterKeys(minimalConflict.contains(_)))))
             val reduced = domain.superSimpleLearn(sustainer.impliedVariables -- minimalConflict, sustainer.propagators).map(_._1)
             println("learned: " + reduced)
-            _learned ++= reduced
+            reduced.foreach(learn(_))
           }
       }
     }
     None
+  }
+
+  def learn(constraint: MixedConstraint) {
+    _learned += constraint
+    val covered: collection.Set[VarId] = constraint match {
+      case Left(noGood) => noGood.coverage()
+      case Right(c) => domain.coverage(c)
+    }
+    val vars = covered.toList
+    for (sequence <- problem.isomorphisms.get(vars)) {
+      val substitution: Map[VarId, VarId] = vars.zip(sequence).toMap
+      _learned += substitute(constraint, substitution)
+    }
+  }
+
+  def substitute(c: MixedConstraint, subst: Map[VarId, VarId]): MixedConstraint = {
+    c match {
+      case Left(noGood) => Left(noGood.substitute(subst))
+      case Right(c) => Right(domain.substitute(c, subst))
+    }
   }
 
   def completeAssignment(assignment: PartialAssignment): Option[Map[VarId, Variable]] = {

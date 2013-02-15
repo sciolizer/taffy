@@ -40,9 +40,14 @@ object Isos {
 
 }
 
-class Isos {
-
+trait Isomorphisms {
   type VarId = Int
+  def get(one: List[VarId]): Set[List[VarId]]
+}
+object NullIsomorphisms extends Isomorphisms {
+  def get(one: List[NullIsomorphisms.VarId]): Set[List[NullIsomorphisms.VarId]] = Set.empty
+}
+class Isos extends Isomorphisms {
 
   private val isos: mutable.Map[IsoKey, Set[List[VarId]]] = mutable.Map.empty
   private val lookup: mutable.Map[Set[VarId], Iso[VarId]] = mutable.Map.empty

@@ -24,4 +24,6 @@ trait Domain[Constraint, Variables, Variable] {
   def revise(rw : ReadWrite[Variables, Variable], c: Constraint) : Boolean
 
   def coverage(c : Constraint) : collection.Set[VarId]
+
+  def substitute(c: Constraint, substitution: Map[VarId, VarId]): Constraint
 }

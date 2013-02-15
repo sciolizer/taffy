@@ -9,5 +9,6 @@ package com.sciolizer.taffy
 class Problem[Constraint, Variables, Variable](
   val numVariables: Int,
   val constraints: Set[Constraint],
-  val candidateValues: Variables) {
+  val candidateValues: Variables,
+  val isomorphisms: Isomorphisms) {
 }

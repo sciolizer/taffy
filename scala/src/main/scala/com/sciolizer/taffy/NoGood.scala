@@ -7,6 +7,10 @@ package com.sciolizer.taffy
  * Time: 4:27 PM
  */
 class NoGood[Variables](val forbidden: Map[Int, Variables]) {
+  def substitute(substitution: Map[Int, Int]): NoGood[Variables] = {
+
+  }
+
   def coverage(): Set[Int] = forbidden.keySet
 
   def revise[Constraint, Variable](rw: ReadWrite[Variables, Variable], ranger: Ranger[Variables, Variable]): Boolean = {
