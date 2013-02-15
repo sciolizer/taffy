@@ -26,7 +26,7 @@ class SuperSimpleSolverSuite extends FunSuite with BeforeAndAfter {
   val initialAssignment: SuperSimpleSolver.PartialAssignment[Set[Boolean]] = (0 until 3).map(vid => vid -> problem.candidateValues).toMap
 
   test(".maintainArcConsistenty should fail on inconsistent assignment") {
-    val prop = sss.maintainArcConsistency(initialAssignment ++ Map[Int, Set[Boolean]](0 -> Set()))
+    val prop = sss.newConsistencySustainer(initialAssignment ++ Map[Int, Set[Boolean]](0 -> Set()))
     assert(prop.rejector === Some(Right(constraint4)))
   }
   test(".revise should return None for unsatisfiable constraint") {
@@ -48,8 +48,8 @@ class SuperSimpleSolverSuite extends FunSuite with BeforeAndAfter {
       Set(constraint0, constraint1, constraint2, constraint3),
       Set(true, false))
     val sss = new SuperSimpleSolver[List[Literal], Set[Boolean], Boolean](new Disjunction[Set[Boolean]](), problem, new SetRanger())
-    val propagation = sss.maintainArcConsistency(initialAssignment ++ Map(0 -> Set(true)))
-    assert(propagation.partialAssignment === Map(0 -> Set(true), 1 -> Set(true), 2 -> Set(true)))
+    val sustainer = sss.newConsistencySustainer(initialAssignment ++ Map(0 -> Set(true)))
+    assert(sustainer.implication === Map(0 -> Set(true), 1 -> Set(true), 2 -> Set(true)))
   }
 
   test("Order domain values") {

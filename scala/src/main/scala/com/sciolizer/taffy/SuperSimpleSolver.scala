@@ -1,7 +1,6 @@
 package com.sciolizer.taffy
 
 import scala.collection.mutable
-import com.sciolizer.taffy.SuperSimpleSolver.Propagation
 
 /**
  * Algorithm taken directly from page 215 of Artifical Intelligence: A Modern approach.
@@ -20,7 +19,6 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
 
   type Assignment = Vector[Variable]
   type PartialAssignment = Map[VarId, Variables]
-  type TPropagation = Propagation[Constraint, Variables]
 
   private val _noGoods: mutable.Set[NoGood[Variables]] = mutable.Set.empty
   def noGoods: Set[NoGood[Variables]] = Set.empty ++ _noGoods
@@ -59,37 +57,48 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
     new ReadWriteTracker[Variables, Variable](assignment, ranger)
   }
 
-  /**
-   * Infers from the given partial assignment as many deductions as possible, without guessing.
-   *
-   * @param assignment Partial assignment
-   * @return
-   */
-  def maintainArcConsistency(assignment: PartialAssignment): TPropagation = {
-    val watchers = new Watchers(assignment)
-    var overlay: PartialAssignment = assignment
-    val constraints: mutable.Set[MixedConstraint] = mutable.Set()
-    constraints ++= problem.constraints.map(Right(_)) ++ _noGoods.map(Left(_))
-//    var implied: Map[VarId, List[(Variables, Constraint)]] = Map.empty
-    while (!constraints.isEmpty) {
-      val constraint = constraints.head
-      constraints -= constraint
-      revise(constraint, overlay) match {
-        case None =>
-          return Propagation[Constraint, Variables](Some[MixedConstraint](constraint), assignment ++ overlay)
-        case Some(pa) =>
-          overlay = overlay ++ pa
-          for ((vid, vals) <- pa) {
-            // Variable assignment changed, so we need to re-examine all constraints covering that variable.
-            constraints ++= watchers.watchers(vid)
-            // With new assignments, constraint might read from more variables than it did before, so we need
-            // to re-watch it.
-            watchers.watch(constraint, assignment ++ overlay)
-//            implied = implied.updated(vid, (vals, constraint) +: implied(vid))
-          }
+  def newConsistencySustainer(assignment: PartialAssignment): ConsistencySustainer = {
+    new ConsistencySustainer(assignment)
+  }
+
+  class ConsistencySustainer(assignment: PartialAssignment) {
+
+    private var _implication: PartialAssignment = assignment
+    private val _propagators: mutable.Set[MixedConstraint] = mutable.Set.empty
+    def propagators: Set[MixedConstraint] = Set.empty ++ _propagators
+    private val _modifiedVariables: mutable.Set[VarId] = mutable.Set.empty
+    def impliedVariables: Set[VarId] = Set.empty ++ _modifiedVariables
+    def implication: PartialAssignment = _implication
+
+    val rejector: Option[MixedConstraint] = maintainArcConsistency()
+
+    private def maintainArcConsistency(): Option[MixedConstraint] = {
+      val watchers = new Watchers(assignment)
+      val constraints: mutable.Set[MixedConstraint] = mutable.Set()
+      constraints ++= problem.constraints.map(Right(_)) ++ _noGoods.map(Left(_))
+      //    var implied: Map[VarId, List[(Variables, Constraint)]] = Map.empty
+      while (!constraints.isEmpty) {
+        val constraint = constraints.head
+        constraints -= constraint
+        revise(constraint, _implication) match {
+          case None =>
+            return Some[MixedConstraint](constraint)
+          case Some(pa) =>
+            _propagators += constraint
+            _implication = _implication ++ pa
+            for ((vid, vals) <- pa) {
+              _modifiedVariables += vid
+              // Variable assignment changed, so we need to re-examine all constraints covering that variable.
+              constraints ++= watchers.watchers(vid)
+              // With new assignments, constraint might read from more variables than it did before, so we need
+              // to re-watch it.
+              watchers.watch(constraint, assignment ++ _implication)
+              //            implied = implied.updated(vid, (vals, constraint) +: implied(vid))
+            }
+        }
       }
+      None
     }
-    Propagation(None, assignment ++ overlay)
   }
 
   /**
@@ -136,8 +145,8 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
       // if a superset accepts, then so do we
       if (accepting.exists(x => vars.subsetOf(x))) return Accept()
       // otherwise, compute
-      val propagation = maintainArcConsistency(conflictingAssignment ++ (conflictingAssignment.keySet -- vars).map(vid => (vid -> problem.candidateValues)))
-      propagation.rejector match {
+      val sustainer = new ConsistencySustainer(conflictingAssignment ++ (conflictingAssignment.keySet -- vars).map(vid => (vid -> problem.candidateValues)))
+      sustainer.rejector match {
         case None =>
           accepting += vars
           Accept()
@@ -189,15 +198,15 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( domain: Domain[Constra
     val variable: VarId = selectUnassignedVariable(assignment)
     for (value <- orderDomainValues(variable, assignment)) {
       val newAssignment: PartialAssignment = assignment.updated(variable, ranger.toSingleton(value))
-      val propagation = maintainArcConsistency(newAssignment)
-      val newNewAssignment: PartialAssignment = newAssignment ++ propagation.partialAssignment
-      propagation match {
-        case Propagation(None, implied) =>
+      val sustainer = new ConsistencySustainer(newAssignment)
+      val newNewAssignment: PartialAssignment = sustainer.implication
+      sustainer.rejector match {
+        case None =>
           backtrackingSearch(newNewAssignment) match {
             case None =>
             case Some(a) => return Some(a)
           }
-        case Propagation(Some(c), implied) =>
+        case Some(c) =>
           for (minimalConflict <- minimize(newNewAssignment)) {
             _noGoods += new NoGood(newNewAssignment.filterKeys(minimalConflict.contains(_)))
           }
@@ -256,7 +265,6 @@ object SuperSimpleSolver {
   type VarId = Int
   type Implications[Constraint, Variables] = Map[VarId, List[(Variables, Constraint)]]
   type PartialAssignment[Variables] = Map[VarId, Variables]
-  case class Propagation[Constraint, Variables](rejector: Option[Either[NoGood[Variables], Constraint]], partialAssignment: PartialAssignment[Variables])
 }
 
 class ReadWriteTracker[Variables, Variable](initial: Map[Int, Variables], r: Ranger[Variables, Variable]) extends ReadWriteMock(initial: Map[Int, Variables], r: Ranger[Variables, Variable]) {
