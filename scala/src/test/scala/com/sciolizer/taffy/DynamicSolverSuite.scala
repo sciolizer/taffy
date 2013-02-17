@@ -23,15 +23,13 @@ class DynamicSolverSuite extends FunSuite {
       def revise(rw: ReadWrite[Set[Value], Value]): Boolean
       val coverage: Set[Int]
     }
-    case class TypeIs(v: Variable[Value], expected: Class) extends Constraint {
+    case class TypeIs(v: Variable[Value], expectedInt: Boolean) extends Constraint {
       def revise(rw: ReadWrite[Set[Value], Value]): Boolean = {
-        if (expected == Class[ValueInt]) {
+        if (expectedInt) {
           rw.shrinkVar(v.varId, ValueList(isEmpty = true))
           rw.shrinkVar(v.varId, ValueList(isEmpty = false))
-        } else if (expected == Class[ValueList]) {
-          rw.intersectVar(v.varId, Set(ValueList(isEmpty = true), ValueList(isEmpty = false)))
         } else {
-          throw new RuntimeException("Unexpected class: " + expected)
+          rw.intersectVar(v.varId, Set(ValueList(isEmpty = true), ValueList(isEmpty = false)))
         }
         true
       }
@@ -62,7 +60,7 @@ class DynamicSolverSuite extends FunSuite {
     }
     case class ConstantInt(v: Variable[Value], i: Int) extends Constraint {
       def revise(rw: ReadWrite[Set[Value], Value]): Boolean = {
-        rw.setVar(v.varId, i)
+        rw.setVar(v.varId, ValueInt(i))
         true
       }
 
@@ -119,9 +117,9 @@ class DynamicSolverSuite extends FunSuite {
         val local = instantiator.newVariable()
         val localLast = instantiator.newVariable()
         val localSize = instantiator.newVariable(extend(local, localLast, diff))
-        instantiator.newConstraint(TypeIs(local, Class[ValueInt]))
-        instantiator.newConstraint(TypeIs(localLast, Class[ValueInt]))
-        instantiator.newConstraint(TypeIs(localSize, Class[ValueList]))
+        instantiator.newConstraint(TypeIs(local, expectedInt = true))
+        instantiator.newConstraint(TypeIs(localLast, expectedInt = true))
+        instantiator.newConstraint(TypeIs(localSize, expectedInt = false))
         instantiator.newConstraint(ConditionallyEqualInts(local, localLast, localSize, whenEmpty = true))
         Triple(local, localLast, localSize)
       }
@@ -152,7 +150,9 @@ class DynamicSolverSuite extends FunSuite {
       // Substitution will always contain keys for at least everything in coverage.
       def substitute(c: Constraint, substitution: Map[D.VarId, D.VarId]): Constraint = throw new RuntimeException("There are no isomorphisms.")
     }
-    val ds = new DynamicSolver[Constraint, Set[Value], Value](D, new SetRanger())
+    val numbers = (0 until 26).map(ValueInt(_)).toSet
+    val lists = Set(ValueList(isEmpty = true), ValueList(isEmpty = false))
+    val ds = new DynamicSolver[Constraint, Set[Value], Value](D, new SetRanger(), numbers ++ lists)
 
     def reader(v: Variable[Value], reader: Reader[Value]): Int = {
       reader.read(v.varId) match {
@@ -161,6 +161,6 @@ class DynamicSolverSuite extends FunSuite {
       }
     }
 
-    ds.solve(problem, reader)
+    assert(24 === ds.solve(problem, reader))
   }
 }
