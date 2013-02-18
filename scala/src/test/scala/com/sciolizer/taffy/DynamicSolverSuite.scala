@@ -10,6 +10,26 @@ import scala.collection
  * Time: 12:04 PM
  */
 class DynamicSolverSuite extends FunSuite {
+  test("Problem with no dynamic variables") {
+    // Trivial domain where the only constraints are to set a variable to the value 2.
+    object D extends Domain[Int, Set[Int], Int] {
+      def revise(rw: ReadWrite[Set[Int], Int], c: Int): Boolean = { rw.setVar(c, 2); true }
+      def coverage(c: Int): collection.Set[D.VarId] = Set(c)
+      def substitute(c: Int, substitution: Map[D.VarId, D.VarId]): Int = substitution(c)
+    }
+    val ds = new DynamicSolver[Int, Set[Int], Int](D, new SetRanger(), Set(0, 1, 2, 3))
+    def problem(init: Init[Int, Int]): List[Variable[Int]] = {
+      val var1 = init.newVariable()
+      val var2 = init.newVariable()
+      init.newConstraint(var2.varId)
+      List(var1, var2)
+    }
+    def solution(vars: List[Variable[Int]], readable: Reader[Int]): Int = {
+      readable.read(vars(1).varId)
+    }
+    assert(ds.solve(problem, solution) === Some(2))
+  }
+
   test("Compute the LCM of 6 and 8") {
     /*
     Problem: find two lists of numbers (henceforth called "left" and "right"), each of arbitrary finite length,
