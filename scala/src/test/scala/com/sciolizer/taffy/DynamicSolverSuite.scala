@@ -38,7 +38,9 @@ class DynamicSolverSuite extends FunSuite {
         ds.newConstraint(Constant(secondVariable.varId, 3))
       }
     })
+    ds.newConstraint(Constant(var0.varId, 2))
     val solution = ds.solve().get
+    println(solution)
     assert(solution(var0) === 2)
     val var1: Variable[Int] = ds.getChildVariables(var0)(0)
     assert(solution(var1) === 3)
