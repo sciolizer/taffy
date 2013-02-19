@@ -10,6 +10,11 @@ import collection.mutable.ArrayBuffer
  * Time: 11:32 AM
  */
 class DynamicSolver[Constraint, Values, Value](domain: Domain[Constraint, Values, Value], ranger: Ranger[Values, Value], candidateValues: Values) {
+
+  def getChildVariables(variable: Variable[Value]): List[Variable[Value]] = {
+    throw new NotImplementedError()
+  }
+
   private var varCounter = 0
   private val constraints: mutable.Set[Constraint] = mutable.Set.empty
   private val variables: ArrayBuffer[Variable[Value]] = ArrayBuffer()

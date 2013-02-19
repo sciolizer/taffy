@@ -18,12 +18,12 @@ class DynamicSolverSuite extends FunSuite {
       def substitute(c: Int, substitution: Map[D.VarId, D.VarId]): Int = substitution(c)
     }
     val ds = new DynamicSolver[Int, Set[Int], Int](D, new SetRanger(), Set(0, 1, 2, 3))
-    ds.newVariable()
-    val var2 = ds.newVariable()
-    ds.newConstraint(var2.varId)
-    assert(ds.solve().get(var2) === 2)
+    ds.newVariable() /* var0 */
+    val var1 = ds.newVariable()
+    ds.newConstraint(var1.varId)
+    assert(ds.solve().get(var1) === 2)
   }
-/*
+
   test("One side effect") {
     case class Constant(vid: Int, value: Int)
     object D extends Domain[Constant, Set[Int], Int] {
@@ -32,18 +32,18 @@ class DynamicSolverSuite extends FunSuite {
       def substitute(c: Constant, substitution: Map[D.VarId, D.VarId]): Constant = c.copy(vid = substitution(c.vid))
     }
     val ds = new DynamicSolver[Constant, Set[Int], Int](D, new SetRanger(), Set(0, 1, 2, 3))
-    def problem(init: Init[Constant, Int]): Variable[Int] = {
-      init.newVariable(new SideEffects[Constant, Int] {
-        def run(variable: Variable[Int], value: Int, instantiator: Instantiator[Constant, Int]) {
-          if (value == 2) {
-            val secondVariable = instantiator.newVariable()
-            instantiator.newConstraint(Constant(secondVariable.varId, 3))
-          }
-        }
-      })
-    }
+    val var0 = ds.newVariable(value => {
+      if (value == 2) {
+        val secondVariable = ds.newVariable()
+        ds.newConstraint(Constant(secondVariable.varId, 3))
+      }
+    })
+    val solution = ds.solve().get
+    assert(solution(var0) === 2)
+    val var1: Variable[Int] = ds.getChildVariables(var0)(0)
+    assert(solution(var1) === 3)
   }
-
+/*
   test("Compute the LCM of 6 and 8") {
     /*
     Problem: find two lists of numbers (henceforth called "left" and "right"), each of arbitrary finite length,
