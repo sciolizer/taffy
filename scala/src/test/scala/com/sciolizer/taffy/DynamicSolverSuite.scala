@@ -18,16 +18,30 @@ class DynamicSolverSuite extends FunSuite {
       def substitute(c: Int, substitution: Map[D.VarId, D.VarId]): Int = substitution(c)
     }
     val ds = new DynamicSolver[Int, Set[Int], Int](D, new SetRanger(), Set(0, 1, 2, 3))
-    def problem(init: Init[Int, Int]): List[Variable[Int]] = {
-      val var1 = init.newVariable()
-      val var2 = init.newVariable()
-      init.newConstraint(var2.varId)
-      List(var1, var2)
+    ds.newVariable()
+    val var2 = ds.newVariable()
+    ds.newConstraint(var2.varId)
+    assert(ds.solve().get(var2) === 2)
+  }
+/*
+  test("One side effect") {
+    case class Constant(vid: Int, value: Int)
+    object D extends Domain[Constant, Set[Int], Int] {
+      def revise(rw: ReadWrite[Set[Int], Int], c: Constant): Boolean = { rw.setVar(c.vid, c.value); true }
+      def coverage(c: Constant): collection.Set[D.VarId] = Set(c.vid)
+      def substitute(c: Constant, substitution: Map[D.VarId, D.VarId]): Constant = c.copy(vid = substitution(c.vid))
     }
-    def solution(vars: List[Variable[Int]], readable: Reader[Int]): Int = {
-      readable.read(vars(1).varId)
+    val ds = new DynamicSolver[Constant, Set[Int], Int](D, new SetRanger(), Set(0, 1, 2, 3))
+    def problem(init: Init[Constant, Int]): Variable[Int] = {
+      init.newVariable(new SideEffects[Constant, Int] {
+        def run(variable: Variable[Int], value: Int, instantiator: Instantiator[Constant, Int]) {
+          if (value == 2) {
+            val secondVariable = instantiator.newVariable()
+            instantiator.newConstraint(Constant(secondVariable.varId, 3))
+          }
+        }
+      })
     }
-    assert(ds.solve(problem, solution) === Some(2))
   }
 
   test("Compute the LCM of 6 and 8") {
@@ -182,5 +196,5 @@ class DynamicSolverSuite extends FunSuite {
     }
 
     assert(24 === ds.solve(problem, reader))
-  }
+  } */
 }

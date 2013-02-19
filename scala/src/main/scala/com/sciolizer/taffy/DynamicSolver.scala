@@ -1,6 +1,7 @@
 package com.sciolizer.taffy
 
 import collection.mutable
+import collection.mutable.ArrayBuffer
 
 /**
  * Created with IntelliJ IDEA.
@@ -9,59 +10,63 @@ import collection.mutable
  * Time: 11:32 AM
  */
 class DynamicSolver[Constraint, Values, Value](domain: Domain[Constraint, Values, Value], ranger: Ranger[Values, Value], candidateValues: Values) {
-  def solve[A, B](problem: Init[Constraint, Value] => A, solutionReader: (A, Reader[Value]) => B): Option[B] = {
-    val constraints: mutable.Set[Constraint] = mutable.Set.empty
-    var varCounter = 0
-    val init = new Init[Constraint, Value] {
-      def newVariable(sideEffects: SideEffects[Constraint, Value]): Variable[Value] = {
-        val ret: Variable[Value] = new Variable(varCounter, {
-          throw new NotImplementedError()
-//          sideEffects.run(ret, hm, init)
-        })
-        varCounter += 1
-        ret
-      }
+  private var varCounter = 0
+  private val constraints: mutable.Set[Constraint] = mutable.Set.empty
+  private val variables: ArrayBuffer[Variable[Value]] = ArrayBuffer()
 
-      def newConstraint(constraint: Constraint) {
-        constraints += constraint
-      }
+  // Most of the time creates a new variable.
+  // But if called from within a side effect, it might return an already existing variable.
+  def newVariable(sideEffects: Value => Unit = DynamicSolver.noSideEffects[Value]): Variable[Value] = {
+    val ret = new Variable(varCounter, sideEffects)
+    variables.append(ret)
+    varCounter += 1
+    ret
+  }
 
-      def newTemplate[A](template: (Instantiator[Constraint, Value]) => A): Template[Constraint, Value, A] = throw new NotImplementedError()
-    }
+  def newConstraint(constraint: Constraint) {
+    constraints += constraint
+  }
 
-    val handle: A = problem(init)
-
-    val p = new Problem[Constraint, Values, Value](varCounter, Set.empty ++ constraints, candidateValues, NoIsomorphisms) // todo: allow isomorphisms
+  def solve(isomorphisms: Isomorphisms = NoIsomorphisms): Option[Map[Variable[Value], Value]] = {
+    val p = new Problem[Constraint, Values, Value](varCounter, Set.empty ++ constraints, candidateValues, isomorphisms)
     val sss = new SuperSimpleSolver[Constraint, Values, Value](domain, p, ranger)
     sss.backtrackingSearch((0 until varCounter).map(x => x -> candidateValues).toMap) match {
       case None => throw new NotImplementedError() // need to run side effects
       case Some(solution) =>
-        val reader = new Reader[Value] {
-          def read(vid: Int): Value = solution(vid)
-        }
-        Some(solutionReader(handle, reader))
+        Some(solution.map(x => (variables(x._1), x._2)))
     }
   }
 }
 
-class Variable[Value](val varId: Int, effects: => Unit)
-
-trait Instantiator[Constraint, Value] {
-  def newVariable(sideEffects: SideEffects[Constraint, Value] = noSideEffects): Variable[Value]
-  def newConstraint(constraint: Constraint)
-  lazy val noSideEffects: SideEffects[Constraint, Value] = new SideEffects[Constraint, Value] {
-    def run(variable: Variable[Value], value: Value, instantiator: Instantiator[Constraint, Value]) { }
-  }
+object DynamicSolver {
+  def noSideEffects[Value](value: Value) { }
 }
 
-trait Init[Constraint, Value] extends Instantiator[Constraint, Value] {
-  def newTemplate[A](template: Instantiator[Constraint, Value] => A): Template[Constraint, Value, A]
-}
+case class Variable[Value](val varId: Int, effects: Value => Unit)
 
-trait Template[Constraint, Value, A] {
-  def instantiate(inst: Instantiator[Constraint, Value]): A
-}
+//trait ConstraintInstantiator[Constraint] {
+//  def newConstraint(constraint: Constraint)
+//}
+//trait Instantiator[Constraint, Value] extends ConstraintInstantiator[Constraint] {
+//  def newVariable(sideEffects: SideEffects[Constraint, Value] = noSideEffects): Variable[Value]
+//  lazy val noSideEffects: SideEffects[Constraint, Value] = new SideEffects[Constraint, Value] {
+//    def run(variable: Variable[Value], value: Value, instantiator: Instantiator[Constraint, Value]) { }
+//  }
+//}
 
+//trait Init[Constraint, Value] extends Instantiator[Constraint, Value] {
+//  def newTemplate[A](template: Instantiator[Constraint, Value] => A): Template[Constraint, Value, A]
+//}
+
+//trait Template[Constraint, Value, A] {
+//  def instantiate(inst: Instantiator[Constraint, Value]): A
+//}
+                     /*
 trait SideEffects[Constraint, Value] {
-  def run(variable: Variable[Value], value: Value, instantiator: Instantiator[Constraint, Value])
+  def forValue(variable: Variable[Value], value: Value): SideEffect[Constraint, Value]
 }
+
+trait SideEffect[Constraint, Value] {
+  val numVariables: Int
+  def constraints(vars: List[Variable[Value]], instantiator: ConstraintInstantiator[Constraint])
+}*/
