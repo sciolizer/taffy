@@ -60,44 +60,9 @@ class DynamicSolver[Constraint, Values, Value](domain: Domain[Constraint, Values
     variables.exists(_.expand(contextContainer))
   }
 
-  // Since the client code makes the list of side effectful values explicit, we don't actually
-  // need to probe for them.
-//  private def analyzeSideEffects(sideEffectfulValues: Values, sideEffects: Value => Unit): Set[Value] = {
-//    val ret: mutable.Set[Value] = mutable.Set.empty
-//    var vid = 0
-//    val vars: mutable.Set[Variable[Values, Value]] = mutable.Set.empty
-//    val constraints: mutable.Set[Constraint] = mutable.Set.empty
-//    val ic = new InstantiationContext {
-//
-//      def newVariable(sideEffectfulValues: Values, sideEffects: (Value) => Unit): Variable[Values, Value] = {
-//        val ret = new Variable[Values, Value](vid, sideEffectfulValues, sideEffects, List.empty)
-//        vars += ret
-//        vid += 1
-//        ret
-//      }
-//
-//      def newConstraint(constraint: Constraint) {
-//        constraints += constraint
-//      }
-//    }
-//
-//    for (value <- ranger.iterate(sideEffectfulValues)) {
-//      vars.clear()
-//      constraints.clear()
-//      withInstantiationContext(ic) {
-//        sideEffects(value)
-//      }
-//      if (!vars.isEmpty) {
-//        ret += value
-//      }
-//    }
-//    Set.empty ++ ret
-//  }
-
   def getChildVariables(variable: Variable[Values, Value]): List[Variable[Values, Value]] = {
     throw new NotImplementedError()
   }
-
 
   /* Instantiation contexts */
 
@@ -105,21 +70,8 @@ class DynamicSolver[Constraint, Values, Value](domain: Domain[Constraint, Values
     def newVariable(sideEffectfulValues: Values, sideEffects: Value => Unit = DynamicSolver.noSideEffects[Value]): Variable[Values, Value]
     def newConstraint(constraint: Constraint)
   }
-                           // Actually this just looks like SideEffectContext where assignments is the empty string
-//  class RootContext extends InstantiationContext {
-//    def newVariable(sideEffectfulValues: Values, sideEffects: Value => Unit = DynamicSolver.noSideEffects[Value]): Variable[Values, Value] = {
-//      val ret = new Variable(variables.size, sideEffectfulValues, sideEffects)
-//      variables.append(ret)
-//      ret
-//    }
-//
-//    def newConstraint(constraint: Constraint) {
-//      constraints += Vanilla(constraint)
-//    }
-//  }
 
   class SideEffectContext(assignments: List[VariableHasValue[Value]]) extends InstantiationContext {
-
     def newVariable(sideEffectfulValues: Values, sideEffects: (Value) => Unit): Variable[Values, Value] = {
       val ret = new Variable(variables.size, sideEffectfulValues, sideEffects, assignments)
       for (value <- sideEffectfulValues) {
@@ -132,7 +84,6 @@ class DynamicSolver[Constraint, Values, Value](domain: Domain[Constraint, Values
     def newConstraint(constraint: Constraint) {
       constraints += ConditionalConstraint(constraint, assignments)
     }
-
   }
 
   /* Constraint wrappers */
@@ -183,19 +134,12 @@ object DynamicSolver {
   def noSideEffects[Value](value: Value) { }
 }
 
-// order of the variables is important
-case class Expansion[Constraint, Value](variables: List[Variable[Constraint, Value]], constraints: List[Constraint])
-
 trait ContextContainer[Value] {
   def conditionedOn(assignments: List[VariableHasValue[Value]])(action: => Unit)
 }
 
 // todo: consider replacing with the Reject class. Or consider replacing the other one with this one.
 case class VariableHasValue[Value](vid: Int, value: Value)
-
-trait VariableCreator[Constraint, Value] {
-  def makeVariable(): Variable[Constraint, Value]
-}
 
 class Variable[Values, Value](val varId: Int, val sideEffectfulValues: Values, effects: Value => Unit, ancestors: List[VariableHasValue[Value]]) {
   private val successfulAssignments: mutable.Set[Value] = mutable.Set.empty
@@ -222,30 +166,3 @@ class Variable[Values, Value](val varId: Int, val sideEffectfulValues: Values, e
   override def equals(obj: Any): Boolean = varId == obj.asInstanceOf[Variable[Values, Value]].varId
   override def hashCode(): Int = varId.hashCode()
 }
-
-//trait ConstraintInstantiator[Constraint] {
-//  def newConstraint(constraint: Constraint)
-//}
-//trait Instantiator[Constraint, Value] extends ConstraintInstantiator[Constraint] {
-//  def newVariable(sideEffects: SideEffects[Constraint, Value] = noSideEffects): Variable[Value]
-//  lazy val noSideEffects: SideEffects[Constraint, Value] = new SideEffects[Constraint, Value] {
-//    def run(variable: Variable[Value], value: Value, instantiator: Instantiator[Constraint, Value]) { }
-//  }
-//}
-
-//trait Init[Constraint, Value] extends Instantiator[Constraint, Value] {
-//  def newTemplate[A](template: Instantiator[Constraint, Value] => A): Template[Constraint, Value, A]
-//}
-
-//trait Template[Constraint, Value, A] {
-//  def instantiate(inst: Instantiator[Constraint, Value]): A
-//}
-                     /*
-trait SideEffects[Constraint, Value] {
-  def forValue(variable: Variable[Value], value: Value): SideEffect[Constraint, Value]
-}
-
-trait SideEffect[Constraint, Value] {
-  val numVariables: Int
-  def constraints(vars: List[Variable[Value]], instantiator: ConstraintInstantiator[Constraint])
-}*/
