@@ -7,6 +7,9 @@ package com.sciolizer.taffy
  * Time: 11:12 AM
  */
 trait Ranger[Values, Value] {
+
+  def contains(values: Values, value: Value): Boolean = !isEmpty(intersection(values, toSingleton(value)))
+
   def size(values: Values): Int = {
     // This implementation is linear, so it's definitely
     // recommended that this method be overridden.

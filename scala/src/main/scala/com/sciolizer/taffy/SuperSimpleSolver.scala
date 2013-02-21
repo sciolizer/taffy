@@ -197,7 +197,7 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( val domain: Domain[Con
     }
   }
 
-  def backtrackingSearch(assignment: PartialAssignment): Option[Map[VarId, Variable]] = {
+  def backtrackingSearch(assignment: PartialAssignment, listener: AssignmentListener[Variable] = SuperSimpleSolver.nullAssignmentListener): Option[Map[VarId, Variable]] = {
     completeAssignment(assignment) match {
       case Some(a) => return Some(a)
       case None =>
@@ -210,6 +210,7 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( val domain: Domain[Con
       val newNewAssignment: PartialAssignment = sustainer.implication
       sustainer.rejector match {
         case None =>
+          listener.assignment(variable, value)
           backtrackingSearch(newNewAssignment) match {
             case None =>
             case Some(a) => return Some(a)
@@ -302,6 +303,9 @@ object SuperSimpleSolver {
   type VarId = Int
   type Implications[Constraint, Variables] = Map[VarId, List[(Variables, Constraint)]]
   type PartialAssignment[Variables] = Map[VarId, Variables]
+  def nullAssignmentListener[Variable]: AssignmentListener[Variable] = new AssignmentListener[Variable] {
+    def assignment(vid: Int, value: Variable) { }
+  }
 }
 
 class ReadWriteTracker[Variables, Variable](initial: Map[Int, Variables], r: Ranger[Variables, Variable]) extends ReadWriteMock(initial: Map[Int, Variables], r: Ranger[Variables, Variable]) {
@@ -313,3 +317,6 @@ class ReadWriteTracker[Variables, Variable](initial: Map[Int, Variables], r: Ran
   }
 }
 
+trait AssignmentListener[Value] {
+  def assignment(vid: Int, value: Value)
+}
