@@ -37,28 +37,29 @@ class DynamicSolverSuite extends FunSuite {
     assert(ds.solve())
     assert(var1.value === 2)
   }
-                                                /*
+
   test("One side effect") {
-    case class Constant(vid: Int, value: Int)
-    object D extends Inference[Constant, Set[Int], Int] {
-      def revise(rw: ReadWrite[Set[Int], Int], c: Constant): Boolean = { rw.setVar(c.vid, c.value); true }
-      def coverage(c: Constant): collection.Set[D.VarId] = Set(c.vid)
-      def substitute(c: Constant, substitution: Map[D.VarId, D.VarId]): Constant = c.copy(vid = substitution(c.vid))
+    case class Constant(vid: Int, value: Int) extends Revisable[Set[Int], Int] {
+      lazy val coverage: Set[D.VarId] = Set(vid)
+      def revise(rw: ReadWrite[Set[Int], Int]): Boolean = { rw.setVar(vid, value); true }
+    }
+    object D extends Inference[Constant] {
+      def substitute[C <: Constant](constraint: C, substitution: Map[D.VarId, D.VarId]): Constant =
+        constraint.copy(vid = substitution(constraint.vid))
     }
     val ds = new DynamicSolver[Constant, Set[Int], Int](D, new SetRanger(), Set(0, 1, 2, 3))
-    val var0 = ds.newVariable(value => {
+    val var0 = ds.newVariable(Set(2), value => {
       if (value == 2) {
-        val secondVariable = ds.newVariable()
+        val secondVariable = ds.newVariable(Set.empty)
         ds.newConstraint(Constant(secondVariable.varId, 3))
       }
     })
     ds.newConstraint(Constant(var0.varId, 2))
-    val solution = ds.solve().get
-    println(solution)
-    assert(solution(var0) === 2)
+    assert(ds.solve())
+    assert(var0.value === 2)
     val var1: Variable[Int] = var0.childVariables(0)
-    assert(solution(var1) === 3)
-  }           */
+    assert(var1.value === 3)
+  }
 /*
   test("Compute the LCM of 6 and 8") {
     /*

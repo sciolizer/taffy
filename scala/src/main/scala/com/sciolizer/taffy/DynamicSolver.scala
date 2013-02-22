@@ -39,10 +39,10 @@ class DynamicSolver[Constraint <: Revisable[Values, Value], Values, Value](domai
       }
       val sss = new SuperSimpleSolver[ConstraintWrapper, Values, Value](new InferenceWrapper, p, ranger)
       sss.backtrackingSearch((0 until numVariables).map(x => x -> candidateValues).toMap, listener) match {
-        case None => throw new NotImplementedError() // need to run side effects
         case Some(sol) =>
           solution = Some(sol) // .map(x => (variables(x._1), x._2)))
           return true
+        case None =>
       }
     } while (nextLevel())
     false
