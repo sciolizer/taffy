@@ -211,6 +211,11 @@ class SuperSimpleSolver[Constraint <: Revisable[Variables, Variable], Variables,
       sustainer.rejector match {
         case None =>
           listener.assignment(variable, value)
+          sustainer.impliedVariables foreach { vid =>
+            val values = newNewAssignment(vid)
+            if (ranger.isSingleton(values))
+              listener.assignment(vid, ranger.fromSingleton(values))
+          }
           backtrackingSearch(newNewAssignment) collect { case Some(a: Map[VarId, Variable]) => return Some(a) }
         case Some(c) =>
           for (minimalConflict <- minimize(newNewAssignment)) {

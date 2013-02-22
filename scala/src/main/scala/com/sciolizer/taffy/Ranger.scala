@@ -32,7 +32,7 @@ trait Ranger[Values, Value] {
    * @param values A collection expected to be a singleton.
    * @return The single value in the given collection.
    */
-  def fromSingleton(values: Values) : Value
+  def fromSingleton(values: Values) : Value // todo: change to an option type
 
   def isSingleton(values: Values) : Boolean
   def intersection(left: Values, right: Values) : Values
