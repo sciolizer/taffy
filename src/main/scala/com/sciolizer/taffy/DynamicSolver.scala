@@ -32,13 +32,8 @@ class DynamicSolver[Constraint <: Revisable[Values, Value], Values, Value](domai
     do {
       val numVariables = variables.size
       val p = new Problem[ConstraintWrapper, Values, Value](numVariables, Set.empty ++ constraints, candidateValues, isomorphisms)
-      val listener = new AssignmentListener[Value] {
-        def assignment(vid: Int, value: Value) {
-          variables(vid).succcessfulAssignment(value)
-        }
-      }
       val sss = new SuperSimpleSolver[ConstraintWrapper, Values, Value](new InferenceWrapper, p, ranger)
-      sss.backtrackingSearch((0 until numVariables).map(x => x -> candidateValues).toMap, listener) match {
+      sss.backtrackingSearch((0 until numVariables).map(x => x -> candidateValues).toMap) match {
         case Some(sol) =>
           solution = Some(sol) // .map(x => (variables(x._1), x._2)))
           return true

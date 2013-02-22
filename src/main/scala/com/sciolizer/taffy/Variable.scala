@@ -16,7 +16,6 @@ class Variable[Value](
     ancestors: List[Variable.Assignment[Value]],
     assignments: Assignments[Value]) {
 
-  private[this] val successfulAssignments: mutable.Set[Value] = mutable.Set.empty
   // todo: add a check to make sure that Value has a legitimate equals() and hashCode()
   private[this] val expanded: mutable.Map[Value, List[Variable[Value]]] = mutable.Map.empty
 
@@ -25,21 +24,14 @@ class Variable[Value](
   def childVariables: List[Variable[Value]] = expanded(value)
 
   // todo: figure out how to hide this method
-  def succcessfulAssignment(value: Value) {
-    successfulAssignments += value
-  }
-
-  // todo: figure out how to hide this method
-  def expand(contextContainer: ContextContainer[Value]): Boolean = {
+  def expand(value: Value, contextContainer: ContextContainer[Value]): Boolean = {
     var ret = false
-    for (value <- successfulAssignments) {
-      if (!expanded.contains(value)) {
-        ret = true
-        val newVariables: List[Variable[Value]] = contextContainer.conditionedOn((varId -> value) +: ancestors) {
-          effects(value)
-        }
-        expanded += value -> newVariables
+    if (!expanded.contains(value)) {
+      ret = true
+      val newVariables: List[Variable[Value]] = contextContainer.conditionedOn((varId -> value) +: ancestors) {
+        effects(value)
       }
+      expanded += value -> newVariables
     }
     ret
   }

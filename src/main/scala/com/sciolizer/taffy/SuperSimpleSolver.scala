@@ -199,7 +199,7 @@ class SuperSimpleSolver[Constraint <: Revisable[Variables, Variable], Variables,
     }
   }
 
-  def backtrackingSearch(assignment: PartialAssignment, listener: AssignmentListener[Variable] = SuperSimpleSolver.nullAssignmentListener): Option[Map[VarId, Variable]] = {
+  def backtrackingSearch(assignment: PartialAssignment): Option[Map[VarId, Variable]] = {
     completeAssignment(assignment) collect { case Some(a: Map[VarId, Variable]) => return Some(a) }
     // todo: run MAC before picking a variable, if this is the first entrance into backtrackingSearch.
     val variable: VarId = selectUnassignedVariable(assignment)
@@ -210,15 +210,6 @@ class SuperSimpleSolver[Constraint <: Revisable[Variables, Variable], Variables,
       val newNewAssignment: PartialAssignment = sustainer.implication
       sustainer.rejector match {
         case None =>
-          listener.assignment(variable, value)
-          sustainer.impliedVariables foreach { vid =>
-            val values = newNewAssignment(vid)
-            if (ranger.isSingleton(values))
-              // ergh. This is still not right. The rejects constraints will prevent these values from
-              // ever being seen.
-              // Maybe rejects constraints are not the way to go.
-              listener.assignment(vid, ranger.fromSingleton(values))
-          }
           backtrackingSearch(newNewAssignment) collect { case Some(a: Map[VarId, Variable]) => return Some(a) }
         case Some(c) =>
           for (minimalConflict <- minimize(newNewAssignment)) {
@@ -308,9 +299,6 @@ object SuperSimpleSolver {
   type VarId = Int
   type Implications[Constraint, Variables] = Map[VarId, List[(Variables, Constraint)]]
   type PartialAssignment[Variables] = Map[VarId, Variables]
-  def nullAssignmentListener[Variable]: AssignmentListener[Variable] = new AssignmentListener[Variable] {
-    def assignment(vid: Int, value: Variable) { }
-  }
 }
 
 class ReadWriteTracker[Variables, Variable](
@@ -326,6 +314,3 @@ class ReadWriteTracker[Variables, Variable](
   }
 }
 
-trait AssignmentListener[Value] {
-  def assignment(vid: Int, value: Value)
-}
