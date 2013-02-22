@@ -200,10 +200,8 @@ class SuperSimpleSolver[Constraint <: Revisable[Variables, Variable], Variables,
   }
 
   def backtrackingSearch(assignment: PartialAssignment, listener: AssignmentListener[Variable] = SuperSimpleSolver.nullAssignmentListener): Option[Map[VarId, Variable]] = {
-    completeAssignment(assignment) match {
-      case Some(a) => return Some(a)
-      case None =>
-    }
+    completeAssignment(assignment) collect { case Some(a: Map[VarId, Variable]) => return Some(a) }
+    // todo: run MAC before picking a variable, if this is the first entrance into backtrackingSearch.
     val variable: VarId = selectUnassignedVariable(assignment)
     println("picking variable: " + variable)
     for (value <- orderDomainValues(variable, assignment)) {
@@ -213,10 +211,7 @@ class SuperSimpleSolver[Constraint <: Revisable[Variables, Variable], Variables,
       sustainer.rejector match {
         case None =>
           listener.assignment(variable, value)
-          backtrackingSearch(newNewAssignment) match {
-            case None =>
-            case Some(a) => return Some(a)
-          }
+          backtrackingSearch(newNewAssignment) collect { case Some(a: Map[VarId, Variable]) => return Some(a) }
         case Some(c) =>
           for (minimalConflict <- minimize(newNewAssignment)) {
             learn(Left(new NoGood(newNewAssignment.filterKeys(minimalConflict.contains(_)))))
