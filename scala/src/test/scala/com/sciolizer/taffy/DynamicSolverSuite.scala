@@ -13,17 +13,23 @@ class DynamicSolverSuite extends FunSuite {
   test("Problem with no dynamic variables") {
     // Trivial domain where the only constraints are to set a variable to the value 2.
     case class IsTheNumberTwo(varId: Int) extends Revisable[Set[Int], Int] {
+
+      lazy val coverage: Set[VarId] = Set(varId)
+
       def revise(rw: ReadWrite[Set[Int], Int]): Boolean = {
         rw.setVar(varId, 2)
         true
       }
 
-      def coverage: collection.Set[VarId] = Set(varId)
     }
+
     object D extends Inference[IsTheNumberTwo] {
+
       def substitute[C <: IsTheNumberTwo](constraint: C, substitution: Map[D.VarId, D.VarId]): IsTheNumberTwo =
         IsTheNumberTwo(substitution(constraint.varId))
+
     }
+
     val ds = new DynamicSolver[IsTheNumberTwo, Set[Int], Int](D, new SetRanger(), Set(0, 1, 2, 3))
     ds.newVariable(Set.empty) /* var0 */
     val var1 = ds.newVariable(Set.empty)

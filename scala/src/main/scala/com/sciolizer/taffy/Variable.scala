@@ -9,9 +9,9 @@ import collection.mutable
  * Date: 2/21/13
  * Time: 11:29 AM
  */
-class Variable[+Value](
+class Variable[Value](
     val varId: Int,
-    val sideEffectfulValues: Set[Value],
+    sideEffectfulValues: Set[Value],
     effects: Value => Unit,
     ancestors: List[Variable.Assignment[Value]],
     assignments: Assignments[Value]) {

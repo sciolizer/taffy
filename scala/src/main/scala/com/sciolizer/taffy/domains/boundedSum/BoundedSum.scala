@@ -12,13 +12,13 @@ import scala.Right
  * Time: 10:16 AM
  *
  */
-class BoundedSum(minimum: Int, maximum: Int /*, ordering: WellOrdered */) extends Inference[this.type#Equation] {
+class BoundedSum(minimum: Int, maximum: Int /*, ordering: WellOrdered */) extends Inference[Equation] {
 
   if (minimum < 0) throw new IllegalArgumentException("Negative minimums is not currently supported: " + minimum)
   if (minimum > maximum) throw new IllegalArgumentException("maximum " + maximum + "must be greater than minimum " + minimum)
 
-  // Substitution will always contain keys for at least everything in coverage.
-  def substitute(c: Equation, substitution: Map[VarId, VarId]): Equation = c.substitute(substitution)
+  def substitute[C <: Equation](constraint: C, substitution: Map[VarId, VarId]): Equation =
+    constraint.substitute(substitution)
                                                    /*
   override def learn(constraints: List[(VarId, MixedConstraint)]): List[(Equation, List[MixedConstraint])] = {
     val vars = constraints.map(_._1).toSet
@@ -72,71 +72,6 @@ class BoundedSum(minimum: Int, maximum: Int /*, ordering: WellOrdered */) extend
 //    println("learned: " + ret)
     ret.toList
   }           */
-
-  case class Equation(addends: List[Addend], relation: Relation, sum: Int) extends Revisable[Set[Int], Int]{
-    lazy val coverage: Set[VarId] = addends.map(_.variable).toSet
-
-    def revise(rw: ReadWrite[Set[Int], Int]): Boolean = {
-      val (positives, negatives) = addends.partition(_.coefficient > 0)
-      var upper = positives.map(_.coefficient * maximum).sum
-      var lower = negatives.map(_.coefficient * maximum).sum
-      val settable = mutable.Map[VarId, Set[Int]]()
-      def outOfBounds(l: Int, u: Int): Boolean = {
-        def lteq(): Boolean = l > sum
-        def gteq(): Boolean = u < sum
-        relation match {
-          case Eq() => lteq() || gteq()
-          case LtEq() => lteq()
-          case GtEq() => gteq()
-        }
-      }
-      def adjustedRange(coefficient: Int, minval: Int, maxval: Int, origMinVal: Int, origMaxVal: Int): (Int, Int) = {
-        val minAdjustment = math.abs(coefficient * (minval - origMinVal))
-        val maxAdjustment = math.abs(coefficient * (maxval - origMaxVal))
-        if (coefficient > 0) {
-          ((lower + minAdjustment, upper - maxAdjustment))
-        } else {
-          ((lower + maxAdjustment, upper - minAdjustment))
-        }
-      }
-      for (Addend(coefficient, vid) <- addends) {
-        if (outOfBounds(lower, upper)) return false
-        if (coefficient == 0) {
-          throw new RuntimeException("invalid equation: zero coefficient")
-        } else {
-          val vals = rw.readVar(vid)
-          if (vals.isEmpty) {
-            throw new RuntimeException("invalid state: variable was already in a contradictory state")
-          } else {
-            val adjusted: (Int, Int) = adjustedRange(coefficient, vals.min, vals.max, minimum, maximum)
-            lower = adjusted._1
-            upper = adjusted._2
-            //          (lower, upper) = adjustedRange(coefficient, vals.min, vals.max)
-            if (vals.size > 1) settable += ((vid, vals))
-          }
-        }
-      }
-      if (outOfBounds(lower, upper)) {
-        false
-      } else {
-        for (Addend(coefficient, vid) <- addends) {
-          settable.get(vid) match {
-            case None =>
-            case Some(vals) =>
-              for (value <- vals) { // todo: find a faster way to do this
-              val (l, u) = adjustedRange(coefficient, value, value, vals.min, vals.max)
-                if (outOfBounds(l, u)) rw.shrinkVar(vid, value)
-              }
-          }
-        }
-        true
-      }
-    }
-
-    def substitute(substitution: Map[Int, Int]): Equation = {
-      copy(addends = addends.map(_.substitute(substitution)))
-    }
-  }
 }
                                /*
 object TestBoundedSum {

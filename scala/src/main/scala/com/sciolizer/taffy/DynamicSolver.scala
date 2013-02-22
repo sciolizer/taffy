@@ -51,7 +51,8 @@ class DynamicSolver[Constraint <: Revisable[Values, Value], Values, Value](domai
   // returns true iff an expansion was made
   private def nextLevel(): Boolean = {
     val contextContainer: Variable.ContextContainer[Value] = new Variable.ContextContainer[Value] {
-      def conditionedOn(dependencies: List[Assignment])(action: => Unit) {
+
+      def conditionedOn(dependencies: List[(VarId, Value)])(action: => Unit): List[Variable[Value]] = {
         for (vv <- dependencies) {
           constraints -= Reject(vv._1, vv._2)
         }
@@ -64,6 +65,7 @@ class DynamicSolver[Constraint <: Revisable[Values, Value], Values, Value](domai
           instantiationContext = originalContext
         }
       }
+
     }
     variables.exists(_.expand(contextContainer))
   }

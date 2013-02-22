@@ -10,7 +10,7 @@ import com.sciolizer.taffy.ReadWrite.{Rejects, Accepts, Is}
  * Time: 5:13 PM
  */
 case class Disjunction[Booleans](literals: List[Literal]) extends Revisable[Booleans, Boolean] {
-  lazy val coverage: collection.Set[Int] = literals.map(_.vid).toSet
+  lazy val coverage: Set[Int] = literals.map(_.vid).toSet
 
   def revise(rw: ReadWrite[Booleans, Boolean]) : Boolean = {
     var accepts: Option[(Int, Boolean)] = None
