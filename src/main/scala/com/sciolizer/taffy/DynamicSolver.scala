@@ -16,10 +16,12 @@ class DynamicSolver[Constraint <: Revisable[Values, Value], Values, Value](domai
   type VarId = Int
   type Assignment = Tuple2[VarId, Value]
 
-  private var instantiationContext: InstantiationContext = new InstantiationContext(List.empty)
-  private val variables: ArrayBuffer[Variable[Value]] = ArrayBuffer()
-  private val constraints: mutable.Set[ConstraintWrapper] = mutable.Set.empty
-  private var solution: Option[Map[VarId, Value]] = None
+  private[this] var instantiationContext: InstantiationContext = new InstantiationContext(List.empty)
+  private[this] val variables: ArrayBuffer[Variable[Value]] = ArrayBuffer()
+  private[this] val solver =
+    new StackedSolver[ConstraintWrapper, Values, Value](new InferenceWrapper, ranger, candidateValues)
+
+//  private var solution: Option[Map[VarId, Value]] = None
 
   // Most of the time creates a new variable.
   // But if called from within a side effect, it might return an already existing variable.
@@ -29,25 +31,46 @@ class DynamicSolver[Constraint <: Revisable[Values, Value], Values, Value](domai
   def newConstraint(constraint: Constraint) { instantiationContext.newConstraint(constraint) }
 
   def solve(isomorphisms: Isomorphisms = NoIsomorphisms): Boolean = {
-    do {
+    if (isomorphisms != NoIsomorphisms) throw new NotImplementedError()
+    while (true) {
       val numVariables = variables.size
-      val p = new Problem[ConstraintWrapper, Values, Value](numVariables, Set.empty ++ constraints, candidateValues, isomorphisms)
-      val sss = new SuperSimpleSolver[ConstraintWrapper, Values, Value](new InferenceWrapper, p, ranger)
-      sss.backtrackingSearch((0 until numVariables).map(x => x -> candidateValues).toMap) match {
-        case Some(sol) =>
-          solution = Some(sol) // .map(x => (variables(x._1), x._2)))
-          return true
+//      val p = new Problem[ConstraintWrapper, Values, Value](numVariables, Set.empty ++ constraints, candidateValues, isomorphisms)
+      solver.solution match {
         case None =>
+          return false
+        case Some(_) =>
+          val expansions: mutable.Set[Variable[Value]] = mutable.Set.empty
+          var pushes = 0
+          for (variable <- variables) {
+            while (variable.requiresExpansion && !expansions.contains(variable)) {
+              // Add a Reject constraint to see if it is actually necessary for this variable to have this value
+              solver.push()
+              solver.insertConstraint(Reject(variable.varId, variable.value))
+              solver.solution match {
+                case None =>
+                  // Yes, it's necessary. Queue up the variable for expansion
+                  expansions += variable
+                  solver.pop()
+                case Some(_) =>
+                  // No, it's not necessary. while loop continues with a different value for the variable
+                  pushes += 1
+              }
+            }
+          }
+          if (expansions.isEmpty) return true // All variables have been assigned values that do not require expansion.
+          0 until pushes foreach { _ => solver.pop() } // Pop all of the Reject constraints we added.
+          expansions foreach { _.expand(something) } // Create new variables and constraints.
       }
-    } while (nextLevel())
-    false
+    }
   }
 
   // returns true iff an expansion was made
+  // todo: can probably delete this function. usage of cContextContainer is moved to the solve function
   private def nextLevel(): Boolean = {
     val contextContainer: Variable.ContextContainer[Value] = new Variable.ContextContainer[Value] {
 
-      def conditionedOn(dependencies: List[(VarId, Value)])(action: => Unit): List[Variable[Value]] = {
+      // http://stackoverflow.com/questions/4543228/whats-the-difference-between-and-unit
+      def conditionedOn(dependencies: List[(VarId, Value)])(action: blah is this right? => Unit): List[Variable[Value]] = {
         for (vv <- dependencies) {
           constraints -= Reject(vv._1, vv._2)
         }
@@ -69,7 +92,7 @@ class DynamicSolver[Constraint <: Revisable[Values, Value], Values, Value](domai
 
 
   lazy val assignments: Variable.Assignments[Value] = new Assignments[Value] {
-    def value(vid: Variable.VarId): Value = solution match {
+    def value(vid: Variable.VarId): Value = solver.solution match {
       case None => throw new IllegalStateException("No solution")
       case Some(sol) => sol(vid)
     }
@@ -81,17 +104,16 @@ class DynamicSolver[Constraint <: Revisable[Values, Value], Values, Value](domai
     def created: List[Variable[Value]] = _created.toList
 
     def newVariable(sideEffectfulValues: Set[Value], sideEffects: (Value) => Unit = DynamicSolver.noSideEffects[Value]): Variable[Value] = {
-      val ret: Variable[Value] = new Variable(variables.size, sideEffectfulValues, sideEffects, dependencies, assignments)
-      for (value <- sideEffectfulValues) {
-        constraints += Reject(ret.varId, value)
-      }
+      val varId = solver.insertVariable()
+      assert(varId == variables.size)
+      val ret: Variable[Value] = new Variable(varId, sideEffectfulValues, sideEffects, dependencies, assignments)
       variables.append(ret)
       _created += ret
       ret
     }
 
     def newConstraint(constraint: Constraint) {
-      constraints += ConditionalConstraint(constraint, dependencies)
+      solver.insertConstraint(ConditionalConstraint(constraint, dependencies))
     }
   }
 
