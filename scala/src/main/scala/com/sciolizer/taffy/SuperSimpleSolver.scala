@@ -313,7 +313,11 @@ object SuperSimpleSolver {
   }
 }
 
-class ReadWriteTracker[Variables, Variable](initial: Map[Int, Variables], r: Ranger[Variables, Variable]) extends ReadWriteMock(initial: Map[Int, Variables], r: Ranger[Variables, Variable]) {
+class ReadWriteTracker[Variables, Variable](
+    override protected val initial: Map[Int, Variables],
+    override protected val r: Ranger[Variables, Variable])
+  extends ReadWriteMock(initial: Map[Int, Variables], r: Ranger[Variables, Variable]) {
+
   private var vars: Set[VarId] = Set.empty
   def reads = vars
   override def readVar(v: VarId): Variables = {

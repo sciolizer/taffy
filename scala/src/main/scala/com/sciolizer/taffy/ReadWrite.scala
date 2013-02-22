@@ -59,7 +59,11 @@ trait ReadWrite[Values, Value] {
   }
 }
 
-class ReadWriteMock[Variables, Variable](initial: Map[Int, Variables], r: Ranger[Variables, Variable]) extends ReadWrite[Variables, Variable]{
+class ReadWriteMock[Variables, Variable](
+    protected val initial: Map[Int, Variables],
+    protected val r: Ranger[Variables, Variable])
+  extends ReadWrite[Variables, Variable] {
+
   val overlay: mutable.Map[VarId, Variables] = mutable.Map.empty
   def changes = overlay
 
