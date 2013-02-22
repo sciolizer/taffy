@@ -214,6 +214,9 @@ class SuperSimpleSolver[Constraint <: Revisable[Variables, Variable], Variables,
           sustainer.impliedVariables foreach { vid =>
             val values = newNewAssignment(vid)
             if (ranger.isSingleton(values))
+              // ergh. This is still not right. The rejects constraints will prevent these values from
+              // ever being seen.
+              // Maybe rejects constraints are not the way to go.
               listener.assignment(vid, ranger.fromSingleton(values))
           }
           backtrackingSearch(newNewAssignment) collect { case Some(a: Map[VarId, Variable]) => return Some(a) }
