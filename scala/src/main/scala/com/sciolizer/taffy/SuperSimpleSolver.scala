@@ -15,9 +15,11 @@ import scala.collection.mutable
  * Date: 2/6/13
  * Time: 2:55 PM
  */
-class SuperSimpleSolver[Constraint, Variables, Variable]( val domain: Domain[Constraint, Variables, Variable],
-                                                          val problem: Problem[Constraint, Variables, Variable],
-                                                          val ranger: Ranger[Variables, Variable]) {
+class SuperSimpleSolver[Constraint <: Revisable[Variables, Variable], Variables, Variable](
+    val domain: Inference[Constraint],
+    val problem: Problem[Constraint, Variables, Variable],
+    val ranger: Ranger[Variables, Variable]) {
+
   type VarId = Int
   type MixedConstraint = Either[NoGood[Variables], Constraint]
 
@@ -129,7 +131,7 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( val domain: Domain[Con
       case Left(noGood) =>
         noGood.revise(rw, ranger)
       case Right(c) =>
-        domain.revise(rw, c)
+        c.revise(rw)
     }
   }
 
@@ -218,7 +220,9 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( val domain: Domain[Con
         case Some(c) =>
           for (minimalConflict <- minimize(newNewAssignment)) {
             learn(Left(new NoGood(newNewAssignment.filterKeys(minimalConflict.contains(_)))))
-            val reduced = domain.superSimpleLearn(sustainer.impliedVariables -- minimalConflict, sustainer.propagators).map(_._1)
+            val reduced = domain.superSimpleLearn(
+              sustainer.impliedVariables -- minimalConflict,
+              sustainer.propagators collect { case Right(x) => x }) map { _._1 }
             println("learned: " + reduced)
             reduced.foreach(x => learn(Right(x)))
           }
@@ -236,7 +240,7 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( val domain: Domain[Con
     val ret: mutable.Set[MixedConstraint] = mutable.Set.empty
     val covered: collection.Set[VarId] = constraint match {
       case Left(noGood) => noGood.coverage()
-      case Right(c) => domain.coverage(c)
+      case Right(c) => c.coverage
     }
     val vars = covered.toList
     for (sequence <- problem.isomorphisms.get(vars)) {
@@ -246,11 +250,9 @@ class SuperSimpleSolver[Constraint, Variables, Variable]( val domain: Domain[Con
     ret
   }
 
-  def substitute(c: MixedConstraint, subst: Map[VarId, VarId]): MixedConstraint = {
-    c match {
-      case Left(noGood) => Left(noGood.substitute(subst))
-      case Right(c) => Right(domain.substitute(c, subst))
-    }
+  def substitute(c: MixedConstraint, subst: Map[VarId, VarId]): MixedConstraint = c match {
+    case Left(noGood) => Left(noGood.substitute(subst))
+    case Right(c) => Right(domain.substitute(c, subst))
   }
 
   def completeAssignment(assignment: PartialAssignment): Option[Map[VarId, Variable]] = {

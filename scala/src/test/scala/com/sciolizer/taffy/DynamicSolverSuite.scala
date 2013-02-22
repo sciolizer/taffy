@@ -12,21 +12,29 @@ import scala.collection
 class DynamicSolverSuite extends FunSuite {
   test("Problem with no dynamic variables") {
     // Trivial domain where the only constraints are to set a variable to the value 2.
-    object D extends Domain[Int, Set[Int], Int] {
-      def revise(rw: ReadWrite[Set[Int], Int], c: Int): Boolean = { rw.setVar(c, 2); true }
-      def coverage(c: Int): collection.Set[D.VarId] = Set(c)
-      def substitute(c: Int, substitution: Map[D.VarId, D.VarId]): Int = substitution(c)
-    }
-    val ds = new DynamicSolver[Int, Set[Int], Int](D, new SetRanger(), Set(0, 1, 2, 3))
-    ds.newVariable() /* var0 */
-    val var1 = ds.newVariable()
-    ds.newConstraint(var1.varId)
-    assert(ds.solve().get(var1) === 2)
-  }
+    case class IsTheNumberTwo(varId: Int) extends Revisable[Set[Int], Int] {
+      def revise(rw: ReadWrite[Set[Int], Int]): Boolean = {
+        rw.setVar(varId, 2)
+        true
+      }
 
+      def coverage: collection.Set[VarId] = Set(varId)
+    }
+    object D extends Inference[IsTheNumberTwo] {
+      def substitute[C <: IsTheNumberTwo](constraint: C, substitution: Map[D.VarId, D.VarId]): IsTheNumberTwo =
+        IsTheNumberTwo(substitution(constraint.varId))
+    }
+    val ds = new DynamicSolver[IsTheNumberTwo, Set[Int], Int](D, new SetRanger(), Set(0, 1, 2, 3))
+    ds.newVariable(Set.empty) /* var0 */
+    val var1 = ds.newVariable(Set.empty)
+    ds.newConstraint(IsTheNumberTwo(var1.varId))
+    assert(ds.solve())
+    assert(var1.value === 2)
+  }
+                                                /*
   test("One side effect") {
     case class Constant(vid: Int, value: Int)
-    object D extends Domain[Constant, Set[Int], Int] {
+    object D extends Inference[Constant, Set[Int], Int] {
       def revise(rw: ReadWrite[Set[Int], Int], c: Constant): Boolean = { rw.setVar(c.vid, c.value); true }
       def coverage(c: Constant): collection.Set[D.VarId] = Set(c.vid)
       def substitute(c: Constant, substitution: Map[D.VarId, D.VarId]): Constant = c.copy(vid = substitution(c.vid))
@@ -42,9 +50,9 @@ class DynamicSolverSuite extends FunSuite {
     val solution = ds.solve().get
     println(solution)
     assert(solution(var0) === 2)
-    val var1: Variable[Int] = ds.getChildVariables(var0)(0)
+    val var1: Variable[Int] = var0.childVariables(0)
     assert(solution(var1) === 3)
-  }
+  }           */
 /*
   test("Compute the LCM of 6 and 8") {
     /*
@@ -178,7 +186,7 @@ class DynamicSolverSuite extends FunSuite {
       left.localLast // todo: figure out how I could reconstruct the entire list; just returning the last value seems like a limited use case
     }
 
-    object D extends Domain[Constraint, Set[Value], Value] {
+    object D extends Inference[Constraint, Set[Value], Value] {
       def revise(rw: ReadWrite[Set[Value], Value], c: Constraint): Boolean = c.revise(rw)
 
       def coverage(c: Constraint): collection.Set[D.VarId] = c.coverage

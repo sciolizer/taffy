@@ -1,15 +1,16 @@
 package com.sciolizer.taffy.examples
 
 import com.sciolizer.taffy._
-import examples.ExactCover.SolverFactory
+//import examples.ExactCover.SolverFactory
 import com.sciolizer.taffy.domains._
-import com.sciolizer.taffy.domains.Addend
-import com.sciolizer.taffy.domains.Eq
-import com.sciolizer.taffy.domains.Equation
-import com.sciolizer.taffy.domains.LtEq
+import boundedSum._
+import boundedSum.Addend
+import boundedSum.Eq
+//import boundedSum.Equation
 import scala.collection.mutable
 import scala.{None, collection}
 import collection.mutable.ArrayBuffer
+import scala.Some
 import scala.Some
 
 /**
@@ -24,7 +25,7 @@ I'm starting to think that the whole satisfiersOf and constraintsOf map is compl
 Each constraint can be translated into a simple linear equation
    sat1 + sat2 + sat3 = 1 for exact and sat1 + sat2 + sat3 <= 1 for bounded
 The revise function, then, won't even use constraintsOf and satisfiersOf... in fact, it shouldn't exist
-at all! ExactCover should not extend Domain. ExactCover should just make use of BoundedSum
+at all! ExactCover should not extend Inference. ExactCover should just make use of BoundedSum
 
 This is gonna be REALLY fast... that's one sophisticated learning function for arbitrary exact cover problems!
 
@@ -35,7 +36,7 @@ Be careful about using negative multipliers, and be careful about adding equatio
 in different directions.
 
 And if all else fails, don't worry about generating a new equation!
- */
+ */                       /*
 object ExactCover {
 
   trait SolverFactory[Satisfier] {
@@ -217,4 +218,4 @@ object NQueens {
         println()
     }
   }
-}
+}*/

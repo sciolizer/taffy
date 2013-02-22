@@ -1,7 +1,7 @@
 package com.sciolizer.taffy.examples
 
 import com.sciolizer.taffy._
-import domains.{Literal, Disjunction}
+import domains.disjunction.{Literal, Inference}
 
 //import examples.Literal
 import com.sciolizer.taffy.ReadWrite.{Rejects, Is, Accepts}
@@ -55,7 +55,7 @@ class BVarRanger extends Ranger[BVars, Boolean] {
 
 
 
-object SatExample {
+object SatExample {      /*
   def main(args: Array[String]) {
     /*
     not a \/ not b \/ not c
@@ -69,7 +69,7 @@ object SatExample {
     val clause1 = List(Literal(false, a), Literal(true, b))
     val clause2 = List(Literal(true, a), Literal(true, c))
     val problem = new Problem[List[Literal], BVars, Boolean](3, Set(clause0, clause1, clause2), new BVars(Set(true, false)), NoIsomorphisms)
-    val s = new SolverSanityCheck[List[Literal], BVars, Boolean](new Disjunction[BVars](), problem, new BVarRanger())
+    val s = new SolverSanityCheck[List[Literal], BVars, Boolean](new Inference[BVars](), problem, new BVarRanger())
     val answer = s.solve()
     answer match {
       case None => println("No solution found")
@@ -78,5 +78,5 @@ object SatExample {
         println("b: " + reader.read(b))
         println("c: " + reader.read(c))
     }
-  }
+  } */
 }

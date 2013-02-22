@@ -10,11 +10,14 @@ import collection.mutable
  * Time: 9:32 AM
  */
 
-trait ReadWrite[Variables, Variable] {
+trait ReadWrite[Values, Value] {
   type VarId = Int
-  protected def ranger: Ranger[Variables, Variable]
-  protected def replace(v: VarId, replacer: Variables => Variables)
-  def readVar(v: VarId): Variables
+
+  protected def ranger: Ranger[Values, Value]
+
+  protected def replace(v: VarId, replacer: Values => Values)
+
+  def readVar(v: VarId): Values
 
   /**
    * Similar to calling readVar and verifying that the returned set is a singleton
@@ -32,8 +35,8 @@ trait ReadWrite[Variables, Variable] {
    *         or if the variable still has at least two possible values that don't violate any
    *         constraints.
    */
-  def contains(v : VarId, value : Variable) : Contains = {
-    val candidates: Variables = readVar(v)
+  def contains(v : VarId, value : Value) : Contains = {
+    val candidates: Values = readVar(v)
     if (ranger.isEmpty(ranger.intersection(candidates, ranger.toSingleton(value)))) {
       Rejects()
     } else if (ranger.isSingleton(candidates)) {
@@ -43,15 +46,15 @@ trait ReadWrite[Variables, Variable] {
     }
   }
 
-  def setVar(v : VarId, value : Variable) {
+  def setVar(v : VarId, value : Value) {
     intersectVar(v, ranger.toSingleton(value))
   }
 
-  def intersectVar(v : VarId, values : Variables) {
+  def intersectVar(v : VarId, values : Values) {
     replace(v, ranger.intersection(_, values))
   }
 
-  def shrinkVar(v : VarId, value : Variable) {
+  def shrinkVar(v : VarId, value : Value) {
     replace(v, ranger.subtraction(_, ranger.toSingleton(value)))
   }
 }

@@ -1,9 +1,9 @@
 package com.sciolizer.taffy
 
 import collection.mutable.ArrayBuffer
-import com.sciolizer.taffy.domains.Literal
 import collection.mutable
 import collection.immutable.Stack
+import domains.disjunction.Literal
 
 /**
  * Created with IntelliJ IDEA.

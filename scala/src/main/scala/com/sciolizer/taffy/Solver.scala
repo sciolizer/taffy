@@ -12,7 +12,7 @@ import scala.util.control.Breaks._
 import scala.{collection, None, math}
 import scala.Nothing
 
-class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variables, Variable],
+class Solver[Constraint, Variables, Variable]( domain: Inference[Constraint],
                                                problem: Problem[Constraint, Variables, Variable],
                                                ranger: Ranger[Variables, Variable]) {
   type VarId = Int
@@ -105,7 +105,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
   case (strings, _) => Left(for(Left(s) <- strings.view) yield s)
 }
              */
-            val learned: List[(Constraint, List[MixedConstraint])] = domain.learn(constraints)
+            val learned: List[(Constraint, List[MixedConstraint])] = throw new NotImplementedError() // .learn(constraints)
             println("learned: " + learned)
             unrevised ++= learned.map(x => Right(x._1)) // todo: incorporate _2 after isomorphisms have been implemented
 //            sanityCheckLearned(learned, constraints)
@@ -140,14 +140,14 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
   protected def revise(rw: ReadWrite[Variables, Variable], constraint: MixedConstraint) : Boolean = {
     constraint match {
       case Left(nogood) => nogood.revise(rw, ranger)
-      case Right(c) => domain.revise(rw, c)
+      case Right(c) => throw new NotImplementedError() // .revise(rw, c)
     }
   }
 
   private def coverage(constraint: MixedConstraint): collection.Set[VarId] = {
     constraint match {
       case Left(nogood) => nogood.coverage()
-      case Right(c) => domain.coverage(c)
+      case Right(c) => throw new NotImplementedError() // .coverage(c)
     }
   }
   /*
@@ -181,7 +181,7 @@ class Solver[Constraint, Variables, Variable]( domain: Domain[Constraint, Variab
 */
 }
 
-class SolverSanityCheck[Constraint, Variables, Variable]( domain: Domain[Constraint, Variables, Variable],
+class SolverSanityCheck[Constraint, Variables, Variable]( domain: Inference[Constraint],
                                                           problem: Problem[Constraint, Variables, Variable],
                                                           ranger: Ranger[Variables, Variable]) extends Solver[Constraint, Variables, Variable](domain, problem, ranger) {
   
@@ -213,7 +213,7 @@ class SolverSanityCheck[Constraint, Variables, Variable]( domain: Domain[Constra
     println("resolution vars: " + constraints.map(_._1))
     // todo: pay attention to the constraints argument 
     for ((nc, from) <- learned) {
-      sanityCheck(domain.coverage(nc).toSet, Right(nc), from.toSet.toList)
+      sanityCheck(throw new NotImplementedError() /* .coverage(nc).toSet */, Right(nc), from.toSet.toList)
     }
   }
   

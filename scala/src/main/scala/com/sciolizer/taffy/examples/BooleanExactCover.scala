@@ -1,7 +1,7 @@
 package com.sciolizer.taffy.examples
 
 import com.sciolizer.taffy._
-import com.sciolizer.taffy.domains.{Eq, Addend, Equation, BoundedSum}
+import domains.boundedSum.{Eq, Addend, BoundedSum}
 import scala.Some
 
 /**
@@ -10,7 +10,7 @@ import scala.Some
  * Date: 1/29/13
  * Time: 4:08 PM
  */                         /*
-class BooleanExactCover extends Domain[Equation, BVars, Boolean] {
+class BooleanExactCover extends Inference[Equation, BVars, Boolean] {
   val boundedSum = new BoundedSum(0, 1)
   // todo: this is a special case of BoundedSum, so just delegate
   // to that implementation
@@ -78,7 +78,7 @@ class BooleanExactCover extends Domain[Equation, BVars, Boolean] {
 
   def coverage(c: Equation): collection.Set[BooleanExactCover#VarId] = c.addends.map(_.variable).toSet
 }                      */
-
+              /*
 object BooleanExactCoverExample {
   def main(args: Array[String]) {
     val problem = new Problem[Equation, Set[Int], Int](3, Set(Equation(List(Addend(1, 0), Addend(1, 1), Addend(1, 2)), Eq(), 1)), Set(0, 1), NoIsomorphisms)
@@ -119,7 +119,7 @@ object ThreeBooleanEquations {
         println("e: " + reader.read(4))
     }
   }
-}
+}               */
 
 //case class IntVars(lower: Int, upper: Int) // lower >= 0 (inclusive), upper <= 100 (exclusive), lower <= upper. lower == upper implies empty range
 /*
@@ -215,7 +215,7 @@ object TestSubtraction {
     assert(IntVars(0, 1).equals(r.subtraction(IntVars(0, 1), IntVars(0, 0))))
   }
 }         */
-
+                /*
 object ThreeIntEquations {
   def main(args: Array[String]) {
     /*
@@ -244,7 +244,7 @@ object ThreeIntEquations {
         println("e: " + reader.read(4))
     }
   }
-}
+}          */
 
 object LightUp {
   /*

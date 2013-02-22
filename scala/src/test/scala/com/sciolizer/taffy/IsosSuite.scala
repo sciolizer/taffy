@@ -36,7 +36,12 @@ class IsosSuite extends FunSuite {
     assert(i.get(List(4, 3)) === Set.empty)
   }
 
-  abstract class EqualityConstraint(val left: Int, val right: Int) extends Comparable[EqualityConstraint] {
+  sealed abstract class EqualityConstraint(val left: Int, val right: Int)
+      extends Revisable[Set[Color], Color]
+      with Comparable[EqualityConstraint] {
+
+    lazy val coverage: Set[VarId] = Set(left, right)
+
     def revise(rw: ReadWrite[Set[Color], Color]): Boolean = {
       val leftVals = rw.readVar(left)
       if (leftVals.size == 1) {
@@ -69,20 +74,22 @@ class IsosSuite extends FunSuite {
   abstract class Color { def opposite: Color }
   case class Black() extends Color { def opposite: Color = White() }
   case class White() extends Color { def opposite: Color = Black() }
-  class TwoColoringDomain extends Domain[EqualityConstraint, Set[Color], Color] {
-    def revise(rw: ReadWrite[Set[Color], Color], c: EqualityConstraint): Boolean = {
-      c.revise(rw)
-    }
+  class TwoColoringInference extends Inference[EqualityConstraint] {
 
-    def coverage(c: EqualityConstraint): collection.Set[VarId] = Set(c.left, c.right)
-
-    def substitute(c: EqualityConstraint, substitution: Map[VarId, VarId]): EqualityConstraint = {
-      c match {
+    /** Creates a copy of the given constraint with its variables swapped out for other variables.
+      *
+      * @param constraint constraint to make a copy of
+      * @param substitution keys will be constraint.coverage. values are the desired replacement variables
+      * @return A copy of the given constraint, but with different variables.
+      */
+    def substitute[C <: EqualityConstraint](
+        constraint: C,
+        substitution: Map[VarId, VarId]): EqualityConstraint =
+      constraint match {
         case Equal(l, r) => Equal(substitution(l), substitution(r))
         case Unequal(l, r) => Unequal(substitution(l), substitution(r))
-      }
     }
-
+                               /*
     override def superSimpleLearn(vars: Set[VarId], constraints: Set[MixedConstraint]): List[(EqualityConstraint, List[MixedConstraint])] = {
       val cs: Set[EqualityConstraint] = (for (Right(c) <- constraints) yield c).toSet
       var ret: List[(EqualityConstraint, List[MixedConstraint])] = List.empty
@@ -93,7 +100,7 @@ class IsosSuite extends FunSuite {
         }
       }
       ret
-    }
+    }          */
   }
 
   def twoColoringProblem(): SuperSimpleSolver[EqualityConstraint, Set[Color], Color] = {
@@ -115,7 +122,7 @@ class IsosSuite extends FunSuite {
     val isos = new Isos()
     isos.add(List(0, 1, 2, 3), Set(List(3, 4, 5, 6)))
     val problem = new Problem[EqualityConstraint, Set[Color], Color](7, Set(ab, ac, bd, cd /*, de, df, eg, fg */), Set(Black(), White()), isos)
-    new SuperSimpleSolver[EqualityConstraint, Set[Color], Color](new TwoColoringDomain(), problem, new SetRanger[Color]())
+    new SuperSimpleSolver[EqualityConstraint, Set[Color], Color](new TwoColoringInference(), problem, new SetRanger[Color]())
   }
 
   test("Two color symmetry") {

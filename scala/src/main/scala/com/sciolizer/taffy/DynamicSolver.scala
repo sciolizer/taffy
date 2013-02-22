@@ -1,8 +1,10 @@
 package com.sciolizer.taffy
 
 import collection.mutable
-import collection.mutable.ArrayBuffer
+import collection.mutable.{ListBuffer, ArrayBuffer}
 import scala.collection
+import collection.immutable.ListMap
+import com.sciolizer.taffy.Variable.Assignments
 
 /**
  * Created with IntelliJ IDEA.
@@ -10,20 +12,23 @@ import scala.collection
  * Date: 2/15/13
  * Time: 11:32 AM
  */
-class DynamicSolver[Constraint, Values, Value](domain: Domain[Constraint, Values, Value], ranger: Ranger[Values, Value], candidateValues: Values) {
+class DynamicSolver[Constraint <: Revisable[Values, Value], Values, Value](domain: Inference[Constraint], ranger: Ranger[Values, Value], candidateValues: Values) {
+  type VarId = Int
+  type Assignment = Tuple2[VarId, Value]
 
-  private var instantiationContext: InstantiationContext = new SideEffectContext(List.empty)
-  private val variables: ArrayBuffer[Variable[Values, Value]] = ArrayBuffer()
+  private var instantiationContext: InstantiationContext = new InstantiationContext(List.empty)
+  private val variables: ArrayBuffer[Variable[Value]] = ArrayBuffer()
   private val constraints: mutable.Set[ConstraintWrapper] = mutable.Set.empty
+  private var solution: Option[Map[VarId, Value]] = None
 
   // Most of the time creates a new variable.
   // But if called from within a side effect, it might return an already existing variable.
-  def newVariable(sideEffectfulValues: Values, sideEffects: Value => Unit = DynamicSolver.noSideEffects[Value]): Variable[Values, Value] =
+  def newVariable(sideEffectfulValues: Set[Value], sideEffects: Value => Unit = DynamicSolver.noSideEffects[Value]): Variable[Value] =
     instantiationContext.newVariable(sideEffectfulValues, sideEffects)
 
   def newConstraint(constraint: Constraint) { instantiationContext.newConstraint(constraint) }
 
-  def solve(isomorphisms: Isomorphisms = NoIsomorphisms): Option[Map[Variable[Values, Value], Value]] = {
+  def solve(isomorphisms: Isomorphisms = NoIsomorphisms): Boolean = {
     do {
       val numVariables = variables.size
       val p = new Problem[ConstraintWrapper, Values, Value](numVariables, Set.empty ++ constraints, candidateValues, isomorphisms)
@@ -32,26 +37,29 @@ class DynamicSolver[Constraint, Values, Value](domain: Domain[Constraint, Values
           variables(vid).succcessfulAssignment(value)
         }
       }
-      val sss = new SuperSimpleSolver[ConstraintWrapper, Values, Value](new DomainWrapper, p, ranger)
+      val sss = new SuperSimpleSolver[ConstraintWrapper, Values, Value](new InferenceWrapper, p, ranger)
       sss.backtrackingSearch((0 until numVariables).map(x => x -> candidateValues).toMap, listener) match {
         case None => throw new NotImplementedError() // need to run side effects
-        case Some(solution) =>
-          return Some(solution.map(x => (variables(x._1), x._2)))
+        case Some(sol) =>
+          solution = Some(sol) // .map(x => (variables(x._1), x._2)))
+          return true
       }
     } while (nextLevel())
+    false
   }
 
   // returns true iff an expansion was made
   private def nextLevel(): Boolean = {
-    val contextContainer: ContextContainer[Value] = new ContextContainer[Value] {
-      def conditionedOn(assignments: List[VariableHasValue[Value]])(action: => Unit) {
-        for (vv <- assignments) {
-          constraints -= Reject(vv.vid, vv.value)
+    val contextContainer: Variable.ContextContainer[Value] = new Variable.ContextContainer[Value] {
+      def conditionedOn(dependencies: List[Assignment])(action: => Unit) {
+        for (vv <- dependencies) {
+          constraints -= Reject(vv._1, vv._2)
         }
         val originalContext = instantiationContext
         try {
-          instantiationContext = new SideEffectContext(assignments)
+          instantiationContext = new InstantiationContext(dependencies)
           action
+          instantiationContext.created
         } finally {
           instantiationContext = originalContext
         }
@@ -60,72 +68,84 @@ class DynamicSolver[Constraint, Values, Value](domain: Domain[Constraint, Values
     variables.exists(_.expand(contextContainer))
   }
 
-  def getChildVariables(variable: Variable[Values, Value]): List[Variable[Values, Value]] = {
-    throw new NotImplementedError()
-  }
-
   /* Instantiation contexts */
 
-  abstract class InstantiationContext {
-    def newVariable(sideEffectfulValues: Values, sideEffects: Value => Unit = DynamicSolver.noSideEffects[Value]): Variable[Values, Value]
-    def newConstraint(constraint: Constraint)
+
+  lazy val assignments: Variable.Assignments[Value] = new Assignments[Value] {
+    def value(vid: Variable.VarId): Value = solution match {
+      case None => throw new IllegalStateException("No solution")
+      case Some(sol) => sol(vid)
+    }
   }
 
-  class SideEffectContext(assignments: List[VariableHasValue[Value]]) extends InstantiationContext {
-    def newVariable(sideEffectfulValues: Values, sideEffects: (Value) => Unit): Variable[Values, Value] = {
-      val ret = new Variable(variables.size, sideEffectfulValues, sideEffects, assignments)
+  class InstantiationContext(dependencies: List[Assignment]) {
+    private[this] val _created: ListBuffer[Variable[Value]] = ListBuffer.empty
+
+    def created: List[Variable[Value]] = _created.toList
+
+    def newVariable(sideEffectfulValues: Set[Value], sideEffects: (Value) => Unit = DynamicSolver.noSideEffects[Value]): Variable[Value] = {
+      val ret: Variable[Value] = new Variable(variables.size, sideEffectfulValues, sideEffects, dependencies, assignments)
       for (value <- sideEffectfulValues) {
         constraints += Reject(ret.varId, value)
       }
       variables.append(ret)
+      _created += ret
       ret
     }
 
     def newConstraint(constraint: Constraint) {
-      constraints += ConditionalConstraint(constraint, assignments)
+      constraints += ConditionalConstraint(constraint, dependencies)
     }
   }
 
   /* Constraint wrappers */
 
-  class DomainWrapper extends Domain[ConstraintWrapper, Values, Value] {
-    def revise(rw: ReadWrite[Values, Value], c: ConstraintWrapper): Boolean = c.revise(rw)
-    def coverage(c: ConstraintWrapper): collection.Set[VarId] = c.coverage
-    def substitute(c: ConstraintWrapper, substitution: Map[VarId, VarId]): ConstraintWrapper = c.substitute(substitution)
+  class InferenceWrapper extends Inference[ConstraintWrapper] {
+    /** Creates a copy of the given constraint with its variables swapped out for other variables.
+      *
+      * @param constraint constraint to make a copy of
+      * @param substitution keys will be constraint.coverage. values are the desired replacement variables
+      * @return A copy of the given constraint, but with different variables.
+      */
+    def substitute[C <: ConstraintWrapper](constraint: C, substitution: Map[VarId, VarId]): ConstraintWrapper = constraint.substitute(substitution)
   }
 
-  abstract class ConstraintWrapper {
-    def revise(rw: ReadWrite[Values, Value]): Boolean
-    val coverage: Set[Int]
-    def substitute(substitution: Map[Int, Int]): ConstraintWrapper
+  sealed trait ConstraintWrapper extends Revisable[Values, Value] {
+    def substitute(substitution: Map[VarId, VarId]): ConstraintWrapper
   }
 
-  case class ConditionalConstraint(inner: Constraint, assignments: List[VariableHasValue[Value]]) extends ConstraintWrapper {
+  case class ConditionalConstraint(inner: Constraint, dependencies: List[Assignment]) extends ConstraintWrapper {
+    lazy val coverage = inner.coverage ++ (dependencies map { _._1 })
+
     def revise(rw: ReadWrite[Values, Value]): Boolean = {
-      for (assignment <- assignments) {
-        if (!ranger.equals(rw.readVar(assignment.vid), ranger.toSingleton(assignment.value))) {
+      for (dependency <- dependencies.reverse) {
+        if (!ranger.equals(rw.readVar(dependency._1), ranger.toSingleton(dependency._2))) {
           return true
         }
       }
-      domain.revise(rw, inner)
+      inner.revise(rw)
     }
-    lazy val coverage = domain.coverage(inner) ++ assignments.map(_.vid)
+
     def substitute(substitution: Map[Int, Int]): ConstraintWrapper =
-      ConditionalConstraint(domain.substitute(inner, substitution), assignments.map(x => x.copy[Value](vid = substitution(x.vid))))
+      ConditionalConstraint(domain.substitute(inner, substitution), dependencies.map(x => substitution(x._1) -> x._2))
   }
 
   case class Reject(vid: Int, value: Value) extends ConstraintWrapper {
+    lazy val coverage = Set(vid)
+
     def revise(rw: ReadWrite[Values, Value]): Boolean = {
       rw.shrinkVar(vid, value)
       true
     }
-    lazy val coverage = Set(vid)
+
     def substitute(substitution: Map[Int, Int]): ConstraintWrapper = copy(vid = substitution(vid))
   }
 
   case class Vanilla(inner: Constraint) extends ConstraintWrapper {
-    def revise(rw: ReadWrite[Values, Value]): Boolean = domain.revise(rw, inner)
-    lazy val coverage: Set[Int] = domain.coverage(inner).asInstanceOf[Set[Int]]
+    lazy val coverage: Set[Int] = inner.coverage
+
+    def revise(rw: ReadWrite[Values, Value]): Boolean = inner.revise(rw)
+
     def substitute(substitution: Map[Int, Int]): ConstraintWrapper = Vanilla(domain.substitute(inner, substitution))
   }
 }
@@ -134,35 +154,4 @@ object DynamicSolver {
   def noSideEffects[Value](value: Value) { }
 }
 
-trait ContextContainer[Value] {
-  def conditionedOn(assignments: List[VariableHasValue[Value]])(action: => Unit)
-}
 
-// todo: consider replacing with the Reject class. Or consider replacing the other one with this one.
-case class VariableHasValue[Value](vid: Int, value: Value)
-
-class Variable[Values, Value](val varId: Int, val sideEffectfulValues: Values, effects: Value => Unit, ancestors: List[VariableHasValue[Value]]) {
-  private val successfulAssignments: mutable.Set[Value] = mutable.Set.empty
-  // todo: add a check to make sure that Value has a legitimate equals() and hashCode()
-  private val expanded: mutable.Set[Value] = mutable.Set.empty
-  def succcessfulAssignment(value: Value) {
-    successfulAssignments += value
-  }
-  def expand(contextContainer: ContextContainer[Value]): Boolean = {
-    var ret = false
-    for (value <- successfulAssignments) {
-      if (!expanded.contains(value)) {
-        ret = true
-        contextContainer.conditionedOn(VariableHasValue(varId, value) +: ancestors) {
-          effects(value)
-        }
-        expanded += value
-      }
-    }
-    ret
-  }
-
-  // todo: add side effect memoization
-  override def equals(obj: Any): Boolean = varId == obj.asInstanceOf[Variable[Values, Value]].varId
-  override def hashCode(): Int = varId.hashCode()
-}
