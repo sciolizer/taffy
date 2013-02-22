@@ -6,9 +6,9 @@ package com.sciolizer.taffy
  * Date: 1/28/13
  * Time: 10:31 AM
  */
-class Problem[Constraint, Variables, Variable](
+class Problem[Constraint, Values, Value](
   val numVariables: Int,
   val constraints: Set[Constraint],
-  val candidateValues: Variables,
-  val isomorphisms: Isomorphisms) {
+  val candidateValues: Values,
+  val isomorphisms: Isomorphisms = NoIsomorphisms) {
 }

@@ -16,7 +16,7 @@ import scala.collection.mutable
  * Time: 2:55 PM
  */
 class SuperSimpleSolver[Constraint <: Revisable[Variables, Variable], Variables, Variable](
-    val domain: Inference[Constraint],
+    val inference: Inference[Constraint],
     val problem: Problem[Constraint, Variables, Variable],
     val ranger: Ranger[Variables, Variable]) {
 
@@ -214,7 +214,7 @@ class SuperSimpleSolver[Constraint <: Revisable[Variables, Variable], Variables,
         case Some(c) =>
           for (minimalConflict <- minimize(newNewAssignment)) {
             learn(Left(new NoGood(newNewAssignment.filterKeys(minimalConflict.contains(_)))))
-            val reduced = domain.superSimpleLearn(
+            val reduced = inference.superSimpleLearn(
               sustainer.impliedVariables -- minimalConflict,
               sustainer.propagators collect { case Right(x) => x }) map { _._1 }
             println("learned: " + reduced)
@@ -246,7 +246,7 @@ class SuperSimpleSolver[Constraint <: Revisable[Variables, Variable], Variables,
 
   def substitute(c: MixedConstraint, subst: Map[VarId, VarId]): MixedConstraint = c match {
     case Left(noGood) => Left(noGood.substitute(subst))
-    case Right(c) => Right(domain.substitute(c, subst))
+    case Right(c) => Right(inference.substitute(c, subst))
   }
 
   def completeAssignment(assignment: PartialAssignment): Option[Map[VarId, Variable]] = {
