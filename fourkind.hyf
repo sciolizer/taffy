@@ -1,0 +1,15 @@
+data Suit = Heart | Club | Spade | Diamond;
+
+data Face = Ace | Two | Three | Four | Five | Six | Seven | Eight | Nine |
+  Ten | Jack | Queen | King;
+
+data Card = Card Face Suit;
+
+def fourkind(cards) = length(cards) == 5 && let { s(i) = suit(cards !! i); fs = s(0) } in fs == s(1) && fs == s(2) && fs == s(3) && fs == s(4);
+
+def suit(c) = case c of { Card _ s -> s };
+
+def lookup(l, i) =
+  case l of
+    Nil -> fail
+    Cons x xs -> if i == 0 then x else lookup(xs, i - 1)
