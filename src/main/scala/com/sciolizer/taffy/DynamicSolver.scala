@@ -2,7 +2,6 @@ package com.sciolizer.taffy
 
 import collection.mutable
 import collection.mutable.{ListBuffer, ArrayBuffer}
-import scala.collection
 
 /**
  * Created with IntelliJ IDEA.

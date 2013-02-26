@@ -1,17 +1,8 @@
 package com.sciolizer.taffy.examples
 
-import com.sciolizer.taffy._
 //import examples.ExactCover.SolverFactory
-import com.sciolizer.taffy.domains._
-import boundedSum._
-import boundedSum.Addend
-import boundedSum.Eq
 //import boundedSum.Equation
-import scala.collection.mutable
-import scala.{None, collection}
-import collection.mutable.ArrayBuffer
-import scala.Some
-import scala.Some
+
 
 /**
  * Created with IntelliJ IDEA.

@@ -8,9 +8,7 @@ package com.sciolizer.taffy
  */
 
 import scala.collection.mutable
-import scala.util.control.Breaks._
-import scala.{collection, None, math}
-import scala.Nothing
+import scala.{collection, None}
 
 class Solver[Constraint, Variables, Variable]( domain: Inference[Constraint],
                                                problem: Problem[Constraint, Variables, Variable],

@@ -1,6 +1,6 @@
 package com.sciolizer.taffy
 
-import com.sciolizer.taffy.Variable.{SolverRef, Assignments, ContextContainer}
+import com.sciolizer.taffy.Variable.SolverRef
 import collection.mutable
 
 /**

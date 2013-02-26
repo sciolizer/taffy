@@ -1,10 +1,8 @@
 package com.sciolizer.taffy.examples
 
 import com.sciolizer.taffy._
-import domains.disjunction.{Literal, Inference}
 
 //import examples.Literal
-import com.sciolizer.taffy.ReadWrite.{Rejects, Is, Accepts}
 
 /**
  * Created with IntelliJ IDEA.

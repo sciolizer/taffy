@@ -1,9 +1,6 @@
 package com.sciolizer.taffy.domains.boundedSum
 
-import scala.collection.mutable
 import com.sciolizer.taffy._
-import scala.Some
-import scala.Right
 
 /**
  * Created with IntelliJ IDEA.

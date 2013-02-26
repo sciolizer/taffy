@@ -1,7 +1,5 @@
 package com.sciolizer.taffy.domains.disjunction
 
-import com.sciolizer.taffy.{ReadWrite, Inference}
-import com.sciolizer.taffy.ReadWrite.{Is, Accepts, Rejects}
 import com.sciolizer.taffy
 
 /**

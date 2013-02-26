@@ -1,8 +1,5 @@
 package com.sciolizer.taffy.examples
 
-import com.sciolizer.taffy._
-import domains.boundedSum.{Eq, Addend, BoundedSum}
-import scala.Some
 
 /**
  * Created with IntelliJ IDEA.
