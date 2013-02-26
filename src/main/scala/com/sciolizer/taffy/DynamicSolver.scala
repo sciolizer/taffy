@@ -16,7 +16,7 @@ class DynamicSolver[Constraint <: Revisable[Values, Value], Values, Value](domai
 
   private[this] var instantiationContext: InstantiationContext = new InstantiationContext(List.empty)
   private[this] val variables: ArrayBuffer[Variable[Value]] = ArrayBuffer()
-  private[this] val solver =
+  protected val solver =
     new StackedSolver[ConstraintWrapper, Values, Value](new InferenceWrapper, ranger, candidateValues)
 
 //  private var solution: Option[Map[VarId, Value]] = None
@@ -155,10 +155,13 @@ class DynamicSolver[Constraint <: Revisable[Values, Value], Values, Value](domai
 
     def substitute(substitution: Map[Int, Int]): ConstraintWrapper = Vanilla(domain.substitute(inner, substitution))
   }
+
 }
 
 object DynamicSolver {
+
   def noSideEffects[Value](value: Value) { }
+
 }
 
 

@@ -1,5 +1,6 @@
 package com.sciolizer.taffy
 
+import domains.sandbox.{Is, ConstantInference, Constant}
 import org.scalatest.FunSuite
 
 /**
@@ -39,22 +40,14 @@ class DynamicSolverSuite extends FunSuite {
   }
 
   test("One side effect") {
-    case class Constant(vid: Int, value: Int) extends Revisable[Set[Int], Int] {
-      lazy val coverage: Set[D.VarId] = Set(vid)
-      def revise(rw: ReadWrite[Set[Int], Int]): Boolean = { rw.setVar(vid, value); true }
-    }
-    object D extends Inference[Constant] {
-      def substitute[C <: Constant](constraint: C, substitution: Map[D.VarId, D.VarId]): Constant =
-        constraint.copy(vid = substitution(constraint.vid))
-    }
-    val ds = new DynamicSolver[Constant, Set[Int], Int](D, new SetRanger(), Set(0, 1, 2, 3))
+    val ds = new DynamicSolver[Constant, Set[Int], Int](ConstantInference, new SetRanger(), Set(0, 1, 2, 3))
     val var0 = ds.newVariable(Set(2), value => {
       if (value == 2) {
         val secondVariable = ds.newVariable(Set.empty)
-        ds.newConstraint(Constant(secondVariable.varId, 3))
+        ds.newConstraint(Is(secondVariable.varId, 3))
       }
     })
-    ds.newConstraint(Constant(var0.varId, 2))
+    ds.newConstraint(Is(var0.varId, 2))
     assert(ds.solve())
     assert(var0.value === 2)
     val var1: Variable[Int] = var0.childVariables(0)

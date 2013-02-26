@@ -28,6 +28,7 @@ class Variable[Value](
   def requiresExpansion: Boolean = sideEffectfulValues.contains(value) && !expanded.contains(value)
 
   // todo: figure out how to hide this method. Obvious solution: use traits. (i.e. Make Variable a trait, instead of a class)
+  // todo: remove this return value
   def expand(value: Value): Boolean = {
     var ret = false
     if (expanded.contains(value)) {
@@ -37,7 +38,7 @@ class Variable[Value](
       val newVariables: List[Variable[Value]] = solver.conditionedOn((varId -> value) +: ancestors) {
         effects(value)
       }
-      expanded += value -> newVariables
+      expanded(value) = newVariables
     }
     ret
   }
