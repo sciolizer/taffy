@@ -47,6 +47,7 @@ class StackedSolver[-Constraint <: Revisable[Values, Value], Values, Value](
     while (constraints.size > top.frameConstraints) {
       constraints.pop()
     }
+    recentSolution = Unsolved() // todo: skip this if only constraints and no variables were popped
   }
 
   // todo: make this substantially faster

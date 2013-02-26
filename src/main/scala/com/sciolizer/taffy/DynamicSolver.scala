@@ -41,12 +41,14 @@ class DynamicSolver[Constraint <: Revisable[Values, Value], Values, Value](domai
             while (variable.requiresExpansion && !expansions.contains(variable)) {
               // Add a Reject constraint to see if it is actually necessary for this variable to have this value
               solver.push()
-              solver.insertConstraint(Reject(variable.varId, variable.value))
+              val value = variable.value
+              solver.insertConstraint(Reject(variable.varId, value))
               solver.solution match {
                 case None =>
                   // Yes, it's necessary. Queue up the variable for expansion
-                  expansions(variable) = variable.value
+                  expansions(variable) = value
                   solver.pop()
+                  assert(solver.solution.isDefined) // todo: remove this expensive operation (or make it not-expensive)
                 case Some(_) =>
                   // No, it's not necessary. while loop continues with a different value for the variable
                   pushes += 1
