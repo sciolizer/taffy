@@ -71,8 +71,10 @@ class ReadWriteMock[Variables, Variable](
 
   def readVar(v: VarId): Variables = {
     overlay.get(v) match {
-      case None => initial(v)
-      case Some(x) => x
+      case None =>
+        initial(v)
+      case Some(x) =>
+        x
     }
   }
 

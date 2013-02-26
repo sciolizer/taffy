@@ -12,7 +12,7 @@ import collection.mutable
 class Variable[Value](
     val varId: Int,
     sideEffectfulValues: Set[Value], // todo: get rid of this
-    effects: Value => Unit,
+    effects: (Variable[Value], Value) => Unit,
     ancestors: List[Variable.Assignment[Value]],
     solver: SolverRef[Value]) {
 
@@ -36,7 +36,7 @@ class Variable[Value](
     } else {
       ret = true
       val newVariables: List[Variable[Value]] = solver.conditionedOn((varId -> value) +: ancestors) {
-        effects(value)
+        effects(this, value)
       }
       expanded(value) = newVariables
     }

@@ -42,6 +42,10 @@ trait Ranger[Values, Value] {
   def equal(left: Values, right: Values): Boolean = {
     isEmpty(subtraction(left, right)) && isEmpty(subtraction(right, left))
   }
+
+  override def equals(obj: Any): Boolean = {
+    throw new UnsupportedOperationException("Rangers in general do not support equality comparison. Perhaps instead you meant to call .equal?")
+  }
 }
 
 class SetRanger[Variable] extends Ranger[Set[Variable], Variable] {

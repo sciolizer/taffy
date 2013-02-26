@@ -53,7 +53,7 @@ class DynamicSolverSuite extends FunSuite {
     val var1: Variable[Int] = var0.childVariables(0)
     assert(var1.value === 3)
   }
-/*
+
   test("Compute the LCM of 6 and 8") {
     /*
     Problem: find two lists of numbers (henceforth called "left" and "right"), each of arbitrary finite length,
@@ -63,10 +63,7 @@ class DynamicSolverSuite extends FunSuite {
     abstract class Value
     case class ValueInt(value: Int) extends Value
     case class ValueList(isEmpty: Boolean) extends Value
-    abstract class Constraint {
-      def revise(rw: ReadWrite[Set[Value], Value]): Boolean
-      val coverage: Set[Int]
-    }
+    sealed trait Constraint extends Revisable[Set[Value], Value]
     case class TypeIs(v: Variable[Value], expectedInt: Boolean) extends Constraint {
       def revise(rw: ReadWrite[Set[Value], Value]): Boolean = {
         if (expectedInt) {
@@ -155,57 +152,39 @@ class DynamicSolverSuite extends FunSuite {
 
     // The output solution should be [6, 12, 18, 24] and [8, 16, 24]. (leftLast[0-3] and rightLast[0-2] = 24)
 
-    def problem(init: Init[Constraint, Value]): Variable[Value] = {
-      case class Triple(local: Variable[Value], localLast: Variable[Value], localSize: Variable[Value])
-      def make(instantiator: Instantiator[Constraint, Value], diff: Int): Triple /* the head */ = {
-        val local = instantiator.newVariable()
-        val localLast = instantiator.newVariable()
-        val localSize = instantiator.newVariable(extend(local, localLast, diff))
-        instantiator.newConstraint(TypeIs(local, expectedInt = true))
-        instantiator.newConstraint(TypeIs(localLast, expectedInt = true))
-        instantiator.newConstraint(TypeIs(localSize, expectedInt = false))
-        instantiator.newConstraint(ConditionallyEqualInts(local, localLast, localSize, whenEmpty = true))
-        Triple(local, localLast, localSize)
-      }
-
-      def extend(prev: Variable[Value], prevLast: Variable[Value], diff: Int): SideEffects[Constraint, Value] = new SideEffects[Constraint, Value] {
-        def run(variable: Variable[Value], value: Value, instantiator: Instantiator[Constraint, Value]) {
-          if (value == ValueList(isEmpty = false)) {
-            val triple = make(instantiator, diff)
-            instantiator.newConstraint(ConditionallyEqualInts(prevLast, triple.local, variable, whenEmpty = false))
-            instantiator.newConstraint(DifferenceOf(triple.local, prev, diff))
-          }
-        }
-      }
-
-      val left = make(init, 6)
-      val right = make(init, 8)
-
-      init.newConstraint(EqualInts(left.localLast, right.localLast))
-
-      left.localLast // todo: figure out how I could reconstruct the entire list; just returning the last value seems like a limited use case
-    }
-
-    object D extends Inference[Constraint, Set[Value], Value] {
-      def revise(rw: ReadWrite[Set[Value], Value], c: Constraint): Boolean = c.revise(rw)
-
-      def coverage(c: Constraint): collection.Set[D.VarId] = c.coverage
-
-      // Substitution will always contain keys for at least everything in coverage.
-      def substitute(c: Constraint, substitution: Map[D.VarId, D.VarId]): Constraint = throw new RuntimeException("There are no isomorphisms.")
-    }
     val numbers = (0 until 26).map(ValueInt(_)).toSet
     val lists = Set(ValueList(isEmpty = true), ValueList(isEmpty = false))
-    val ds = new DynamicSolver[Constraint, Set[Value], Value](D, new SetRanger(), numbers ++ lists)
+    val ds = new DynamicSolver[Constraint, Set[Value], Value](new NullInference, new SetRanger(), numbers ++ lists)
 
-    def reader(v: Variable[Value], reader: Reader[Value]): Int = {
-      reader.read(v.varId) match {
-        case ValueInt(i) => i
-        case _ => throw new IllegalStateException("TypeIs constraint was not satisfied.")
+    case class Triple(local: Variable[Value], localLast: Variable[Value], localSize: Variable[Value])
+
+    def extend(prev: Variable[Value], prevLast: Variable[Value], diff: Int)(self: Variable[Value], value: Value) {
+      if (value == ValueList(isEmpty = false)) {
+        val triple = make(diff)
+        ds.newConstraint(ConditionallyEqualInts(prevLast, triple.local, self, whenEmpty = false))
+        ds.newConstraint(DifferenceOf(triple.local, prev, diff))
       }
     }
 
-    assert(24 === ds.solve(problem, reader))
-  } */
+    def make(diff: Int): Triple /* the head */ = {
+      val local = ds.newVariable(Set.empty)
+      val localLast = ds.newVariable(Set.empty)
+      val sideEffects: (Variable[Value], Value) => Unit = extend(local, localLast, diff)
+      val localSize: Variable[Value] = ds.newVariable(Set[Value](ValueList(isEmpty = false)), sideEffects)
+      ds.newConstraint(TypeIs(local, expectedInt = true))
+      ds.newConstraint(TypeIs(localLast, expectedInt = true))
+      ds.newConstraint(TypeIs(localSize, expectedInt = false))
+      ds.newConstraint(ConditionallyEqualInts(local, localLast, localSize, whenEmpty = true))
+      Triple(local, localLast, localSize)
+    }
+
+    val left = make(6)
+    val right = make(8)
+
+    ds.newConstraint(EqualInts(left.localLast, right.localLast))
+
+    assert(ds.solve())
+    assert(24 === left.localLast.value)
+  }
 
 }

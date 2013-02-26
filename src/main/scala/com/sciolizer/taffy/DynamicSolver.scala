@@ -23,8 +23,13 @@ class DynamicSolver[Constraint <: Revisable[Values, Value], Values, Value](domai
 
   // Most of the time creates a new variable.
   // But if called from within a side effect, it might return an already existing variable.
-  def newVariable(sideEffectfulValues: Set[Value], sideEffects: Value => Unit = DynamicSolver.noSideEffects[Value]): Variable[Value] =
+  def newVariable(sideEffectfulValues: Set[Value], sideEffects: (Variable[Value], Value) => Unit = DynamicSolver.noSideEffects[Value]): Variable[Value] =
     instantiationContext.newVariable(sideEffectfulValues, sideEffects)
+
+  def newVariable(sideEffectfulValues: Set[Value], sideEffects: Value => Unit): Variable[Value] = {
+    def effects(_v: Variable[Value], value: Value) { sideEffects(value) }
+    instantiationContext.newVariable(sideEffectfulValues, effects)
+  }
 
   def newConstraint(constraint: Constraint) { instantiationContext.newConstraint(constraint) }
 
@@ -91,7 +96,7 @@ class DynamicSolver[Constraint <: Revisable[Values, Value], Values, Value](domai
 
     def created: List[Variable[Value]] = _created.toList
 
-    def newVariable(sideEffectfulValues: Set[Value], sideEffects: (Value) => Unit = DynamicSolver.noSideEffects[Value]): Variable[Value] = {
+    def newVariable(sideEffectfulValues: Set[Value], sideEffects: (Variable[Value], Value) => Unit = DynamicSolver.noSideEffects[Value]): Variable[Value] = {
       val varId = solver.insertVariable()
       assert(varId == variables.size)
       val ret: Variable[Value] = new Variable(varId, sideEffectfulValues, sideEffects, dependencies, solverRef)
@@ -126,7 +131,7 @@ class DynamicSolver[Constraint <: Revisable[Values, Value], Values, Value](domai
 
     def revise(rw: ReadWrite[Values, Value]): Boolean = {
       for (dependency <- dependencies.reverse) {
-        if (!ranger.equals(rw.readVar(dependency._1), ranger.toSingleton(dependency._2))) {
+        if (!ranger.equal(rw.readVar(dependency._1), ranger.toSingleton(dependency._2))) {
           return true
         }
       }
@@ -160,7 +165,7 @@ class DynamicSolver[Constraint <: Revisable[Values, Value], Values, Value](domai
 
 object DynamicSolver {
 
-  def noSideEffects[Value](value: Value) { }
+  def noSideEffects[Value](variable: Variable[Value], value: Value) { }
 
 }
 
