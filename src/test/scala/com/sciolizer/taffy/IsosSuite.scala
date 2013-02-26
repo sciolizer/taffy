@@ -2,7 +2,6 @@ package com.sciolizer.taffy
 
 import org.scalatest.FunSuite
 import com.sciolizer.taffy.Isos.{Permutation, IsoKey, Iso}
-import scala.collection
 
 /**
  * Created with IntelliJ IDEA.

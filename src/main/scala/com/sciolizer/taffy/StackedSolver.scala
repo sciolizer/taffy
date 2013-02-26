@@ -9,7 +9,7 @@ import collection.mutable
  * Time: 11:15 AM
  */
 // todo: support isomorphisms
-class StackedSolver[-Constraint <: Revisable[Values, Value], Values, +Value](
+class StackedSolver[-Constraint <: Revisable[Values, Value], Values, Value](
     private[this] val inference: Inference[Constraint],
     private[this] val ranger: Ranger[Values, Value],
     private[this] val candidateValues: Values) {

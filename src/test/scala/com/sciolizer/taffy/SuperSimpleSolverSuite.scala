@@ -3,7 +3,6 @@ package com.sciolizer.taffy
 //import domains.disjunction.{Literal, Inference}
 import org.scalatest.FunSuite
 import org.scalatest.BeforeAndAfter
-import scala.collection
 
 /**
  * Created with IntelliJ IDEA.

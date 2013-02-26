@@ -2,6 +2,7 @@ package com.sciolizer.taffy
 
 import collection.mutable
 import collection.mutable.{ListBuffer, ArrayBuffer}
+import com.sciolizer.taffy.Variable.SolverRef
 
 /**
  * Created with IntelliJ IDEA.
@@ -54,12 +55,14 @@ class DynamicSolver[Constraint <: Revisable[Values, Value], Values, Value](domai
           }
           if (expansions.isEmpty) return true // All variables have been assigned values that do not require expansion.
           0 until pushes foreach { _ => solver.pop() } // Pop all of the Reject constraints we added.
-          expansions foreach { kv => kv._1.expand(kv._2, contextContainer) } // Create new variables and constraints.
+          expansions foreach { kv => kv._1.expand(kv._2) } // Create new variables and constraints.
       }
     }
+    sys.error("impossibly escaped the while loop")
   }
 
-  private[this] lazy val contextContainer: Variable.ContextContainer[Value] = new ContextContainer[Value] {
+  lazy val solverRef: SolverRef[Value] = new SolverRef[Value] {
+
     def conditionedOn(dependencies: List[(Variable.VarId, Value)])(action: => Unit): List[Variable[Value]] = {
       val originalContext = instantiationContext
       try {
@@ -70,17 +73,16 @@ class DynamicSolver[Constraint <: Revisable[Values, Value], Values, Value](domai
         instantiationContext = originalContext
       }
     }
-  }
 
-  /* Instantiation contexts */
-
-
-  lazy val assignments: Variable.Assignments[Value] = new Assignments[Value] {
     def value(vid: Variable.VarId): Value = solver.solution match {
       case None => throw new IllegalStateException("No solution")
       case Some(sol) => sol(vid)
     }
+
   }
+
+  /* Instantiation contexts */
+
 
   class InstantiationContext(dependencies: List[Assignment]) {
     private[this] val _created: ListBuffer[Variable[Value]] = ListBuffer.empty
@@ -90,7 +92,7 @@ class DynamicSolver[Constraint <: Revisable[Values, Value], Values, Value](domai
     def newVariable(sideEffectfulValues: Set[Value], sideEffects: (Value) => Unit = DynamicSolver.noSideEffects[Value]): Variable[Value] = {
       val varId = solver.insertVariable()
       assert(varId == variables.size)
-      val ret: Variable[Value] = new Variable(varId, sideEffectfulValues, sideEffects, dependencies, assignments)
+      val ret: Variable[Value] = new Variable(varId, sideEffectfulValues, sideEffects, dependencies, solverRef)
       variables.append(ret)
       _created += ret
       ret

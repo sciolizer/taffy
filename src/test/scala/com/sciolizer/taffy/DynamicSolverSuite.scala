@@ -1,7 +1,6 @@
 package com.sciolizer.taffy
 
 import org.scalatest.FunSuite
-import scala.collection
 
 /**
  * Created with IntelliJ IDEA.
@@ -10,6 +9,7 @@ import scala.collection
  * Time: 12:04 PM
  */
 class DynamicSolverSuite extends FunSuite {
+
   test("Problem with no dynamic variables") {
     // Trivial domain where the only constraints are to set a variable to the value 2.
     case class IsTheNumberTwo(varId: Int) extends Revisable[Set[Int], Int] {
@@ -214,4 +214,5 @@ class DynamicSolverSuite extends FunSuite {
 
     assert(24 === ds.solve(problem, reader))
   } */
+
 }
