@@ -1,6 +1,6 @@
 package com.sciolizer.taffy
 
-import com.sciolizer.taffy.Variable.{Assignments, ContextContainer}
+import com.sciolizer.taffy.Variable.{SolverRef, Assignments, ContextContainer}
 import collection.mutable
 
 /**
@@ -11,24 +11,30 @@ import collection.mutable
  */
 class Variable[Value](
     val varId: Int,
-    sideEffectfulValues: Set[Value],
+    sideEffectfulValues: Set[Value], // todo: get rid of this
     effects: Value => Unit,
     ancestors: List[Variable.Assignment[Value]],
-    assignments: Assignments[Value]) {
+    solver: SolverRef[Value]) {
+
 
   // todo: add a check to make sure that Value has a legitimate equals() and hashCode()
   private[this] val expanded: mutable.Map[Value, List[Variable[Value]]] = mutable.Map.empty
 
-  def value: Value = assignments.value(varId)
+  def value: Value = solver.value(varId)
 
   def childVariables: List[Variable[Value]] = expanded(value)
 
-  // todo: figure out how to hide this method
-  def expand(value: Value, contextContainer: ContextContainer[Value]): Boolean = {
+  // todo: figure out how to hide this method (use traits)
+  def requiresExpansion: Boolean = sideEffectfulValues.contains(value) && !expanded.contains(value)
+
+  // todo: figure out how to hide this method. Obvious solution: use traits. (i.e. Make Variable a trait, instead of a class)
+  def expand(value: Value): Boolean = {
     var ret = false
-    if (!expanded.contains(value)) {
+    if (expanded.contains(value)) {
+      throw new IllegalArgumentException("Variable has already been expanded for given value: " + value)
+    } else {
       ret = true
-      val newVariables: List[Variable[Value]] = contextContainer.conditionedOn((varId -> value) +: ancestors) {
+      val newVariables: List[Variable[Value]] = solver.conditionedOn((varId -> value) +: ancestors) {
         effects(value)
       }
       expanded += value -> newVariables
@@ -44,11 +50,8 @@ object Variable {
   type VarId = Int
   type Assignment[Value] = Tuple2[VarId, Value]
 
-  trait ContextContainer[Value] {
-    def conditionedOn(assignments: List[Assignment[Value]])(action: => Unit): List[Variable[Value]]
-  }
-
-  trait Assignments[+Value] {
+  trait SolverRef[Value] {
+    def conditionedOn(dependencies: List[Assignment[Value]])(action: => Unit): List[Variable[Value]]
     def value(vid: VarId): Value
   }
 }

@@ -3,8 +3,6 @@ package com.sciolizer.taffy
 import collection.mutable
 import collection.mutable.{ListBuffer, ArrayBuffer}
 import scala.collection
-import collection.immutable.ListMap
-import com.sciolizer.taffy.Variable.Assignments
 
 /**
  * Created with IntelliJ IDEA.
@@ -33,13 +31,11 @@ class DynamicSolver[Constraint <: Revisable[Values, Value], Values, Value](domai
   def solve(isomorphisms: Isomorphisms = NoIsomorphisms): Boolean = {
     if (isomorphisms != NoIsomorphisms) throw new NotImplementedError()
     while (true) {
-      val numVariables = variables.size
-//      val p = new Problem[ConstraintWrapper, Values, Value](numVariables, Set.empty ++ constraints, candidateValues, isomorphisms)
       solver.solution match {
         case None =>
           return false
         case Some(_) =>
-          val expansions: mutable.Set[Variable[Value]] = mutable.Set.empty
+          val expansions: mutable.Map[Variable[Value], Value] = mutable.Map.empty
           var pushes = 0
           for (variable <- variables) {
             while (variable.requiresExpansion && !expansions.contains(variable)) {
@@ -49,7 +45,7 @@ class DynamicSolver[Constraint <: Revisable[Values, Value], Values, Value](domai
               solver.solution match {
                 case None =>
                   // Yes, it's necessary. Queue up the variable for expansion
-                  expansions += variable
+                  expansions(variable) = variable.value
                   solver.pop()
                 case Some(_) =>
                   // No, it's not necessary. while loop continues with a different value for the variable
@@ -59,33 +55,22 @@ class DynamicSolver[Constraint <: Revisable[Values, Value], Values, Value](domai
           }
           if (expansions.isEmpty) return true // All variables have been assigned values that do not require expansion.
           0 until pushes foreach { _ => solver.pop() } // Pop all of the Reject constraints we added.
-          expansions foreach { _.expand(something) } // Create new variables and constraints.
+          expansions foreach { kv => kv._1.expand(kv._2, contextContainer) } // Create new variables and constraints.
       }
     }
   }
 
-  // returns true iff an expansion was made
-  // todo: can probably delete this function. usage of cContextContainer is moved to the solve function
-  private def nextLevel(): Boolean = {
-    val contextContainer: Variable.ContextContainer[Value] = new Variable.ContextContainer[Value] {
-
-      // http://stackoverflow.com/questions/4543228/whats-the-difference-between-and-unit
-      def conditionedOn(dependencies: List[(VarId, Value)])(action: blah is this right? => Unit): List[Variable[Value]] = {
-        for (vv <- dependencies) {
-          constraints -= Reject(vv._1, vv._2)
-        }
-        val originalContext = instantiationContext
-        try {
-          instantiationContext = new InstantiationContext(dependencies)
-          action
-          instantiationContext.created
-        } finally {
-          instantiationContext = originalContext
-        }
+  private[this] lazy val contextContainer: Variable.ContextContainer[Value] = new ContextContainer[Value] {
+    def conditionedOn(dependencies: List[(Variable.VarId, Value)])(action: => Unit): List[Variable[Value]] = {
+      val originalContext = instantiationContext
+      try {
+        instantiationContext = new InstantiationContext(dependencies)
+        action
+        instantiationContext.created
+      } finally {
+        instantiationContext = originalContext
       }
-
     }
-    variables.exists(_.expand(contextContainer))
   }
 
   /* Instantiation contexts */
