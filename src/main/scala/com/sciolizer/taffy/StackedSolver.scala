@@ -53,8 +53,10 @@ class StackedSolver[-Constraint <: Revisable[Values, Value], Values, Value](
   // todo: make this substantially faster
   // todo: obtain learned constraints and add them to our own list of constraints
   def solution: Option[Map[VarId, Value]] = recentSolution match {
-    case NoSolution() => None
-    case Solution(ret) => Some(ret)
+    case NoSolution() =>
+      None
+    case Solution(ret) =>
+      Some(ret)
     case Unsolved() =>
       val problem: Problem[Constraint, Values, Value] = new Problem(variables, constraints.toSet, candidateValues)
       val sss = new SuperSimpleSolver[Constraint, Values, Value](inference, problem, ranger)

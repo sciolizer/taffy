@@ -1,6 +1,8 @@
 package com.sciolizer.taffy
 
 //import domains.disjunction.{Literal, Inference}
+
+import domains.sandbox.{Is, Constant, ConstantInference}
 import org.scalatest.FunSuite
 import org.scalatest.BeforeAndAfter
 
@@ -11,6 +13,18 @@ import org.scalatest.BeforeAndAfter
  * Time: 10:10 AM
  */
 class SuperSimpleSolverSuite extends FunSuite with BeforeAndAfter {
+
+  test("watchers on conditional constraints") {
+    val candidateValues = Set(0, 1, 2, 3)
+    val ranger: Ranger[Set[Int], Int] = new SetRanger()
+    new DynamicSolver[Constant, Set[Int], Int](ConstantInference, ranger, candidateValues) {
+      val constraint2 = ConditionalConstraint(Is(1, 2), List(0 -> 1))
+      val constraints: Set[ConstraintWrapper] = Set(Vanilla(Is(0, 1)), constraint2)
+      new SuperSimpleSolver[ConstraintWrapper, Set[Int], Int](new InferenceWrapper, new Problem[ConstraintWrapper, Set[Int], Int](2, constraints, candidateValues), ranger) {
+        assert(Set(Right(constraint2)) === new Watchers(Map(0 -> Set(1), 1 -> candidateValues)).watchers(1))
+      }
+    }
+  }
                                                                                 /*
   // a = True, b = True, c = True is only valid assignment
   val constraint0 /* a \/ b \/ c   */ = List(Literal(true, 0), Literal(true, 1), Literal(true, 2))
