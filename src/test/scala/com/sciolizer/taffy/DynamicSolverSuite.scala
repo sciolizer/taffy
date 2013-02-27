@@ -46,7 +46,7 @@ class DynamicSolverSuite extends FunSuite {
 
   test("One side effect") {
     val ds = new DynamicSolver[Constant, Set[Int], Int](ConstantInference, new SetRanger(), Set(0, 1, 2, 3))
-    val var0 = ds.newVariable(Set(2), value => {
+    val var0 = ds.newVariableX(Set(2), value => {
       if (value == 2) {
         val secondVariable = ds.newVariable(Set.empty)
         ds.newConstraint(Is(secondVariable.varId, 3))

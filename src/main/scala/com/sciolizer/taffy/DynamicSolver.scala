@@ -10,7 +10,12 @@ import com.sciolizer.taffy.Variable.SolverRef
  * Date: 2/15/13
  * Time: 11:32 AM
  */
-class DynamicSolver[Constraint <: Revisable[Values, Value], Values, Value](domain: Inference[Constraint], ranger: Ranger[Values, Value], candidateValues: Values) {
+class DynamicSolver[Constraint <: Revisable[Values, Value], Values, Value](
+    domain: Inference[Constraint],
+    ranger: Ranger[Values, Value],
+    candidateValues: Values)
+  extends Instantiator[Constraint, Value] {
+
   type VarId = Int
   type Assignment = Tuple2[VarId, Value]
 
@@ -25,11 +30,6 @@ class DynamicSolver[Constraint <: Revisable[Values, Value], Values, Value](domai
   // But if called from within a side effect, it might return an already existing variable.
   def newVariable(sideEffectfulValues: Set[Value], sideEffects: (Variable[Value], Value) => Unit = DynamicSolver.noSideEffects[Value]): Variable[Value] =
     instantiationContext.newVariable(sideEffectfulValues, sideEffects)
-
-  def newVariable(sideEffectfulValues: Set[Value], sideEffects: Value => Unit): Variable[Value] = {
-    def effects(_v: Variable[Value], value: Value) { sideEffects(value) }
-    instantiationContext.newVariable(sideEffectfulValues, effects)
-  }
 
   def newConstraint(constraint: Constraint) { instantiationContext.newConstraint(constraint) }
 

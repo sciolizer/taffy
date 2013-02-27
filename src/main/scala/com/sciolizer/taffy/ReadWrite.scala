@@ -113,7 +113,7 @@ class ReadWriteGraph[Constraint, Variables, Variable](graph: ImplicationGraph[Co
 }
 
 object ReadWrite {
-  abstract class Contains
+  sealed trait Contains
   case class Accepts() extends Contains
   case class Rejects() extends Contains
   case class Is() extends Contains
