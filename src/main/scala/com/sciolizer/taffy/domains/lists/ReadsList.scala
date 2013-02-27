@@ -4,9 +4,13 @@ trait ReadsList[+Values] {
 
   def isEmpty: Values
 
-  def heads: Values
+  def isEmptyBools: Set[Boolean]
+
+  def heads: Option[Values]
 
   def tails: Option[ReadsList[Values]]
+
+  def snoc: Option[(Values, ReadsList[Values])]
 
   /** Gives the longest list it can, up to the solver's current search depth. So, for instance, if it returns
     * [Set(1,2),Set(3,4)], then [1, 3] is currently a possible value. [2] is also a possible value, even though

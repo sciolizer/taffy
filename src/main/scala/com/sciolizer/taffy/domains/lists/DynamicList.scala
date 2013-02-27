@@ -3,6 +3,9 @@ package com.sciolizer.taffy.domains.lists
 import com.sciolizer.taffy._
 
 trait DynamicList[Values, Value] {
+
+  type VarId = Int
+
 /*
   private[this] val isEmpty = solver.newVariable(Set(subsume(false)), sideEffects)
   solver.newConstraint
@@ -28,5 +31,7 @@ trait DynamicList[Values, Value] {
   */
 
   def readWrite(rw: ReadWrite[Values, Value]): ReadsWritesList[Values]
+
+  def coverage: Set[VarId]
 
 }
